@@ -32,8 +32,8 @@ import {
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 const HOURS = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, "0"));
-const MINUTES = ["00", "15", "30", "45"];
-const AUTO_REFRESH_MS = 18000;
+const MINUTES = Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, "0"));
+const AUTO_REFRESH_MS = 6000;
 const SWIPE_THRESHOLD = 56;
 
 function emptyForm(date, ownerId = DEFAULT_OWNER_ID) {
@@ -55,59 +55,159 @@ function sortEvents(events) {
   });
 }
 
+function eventsSignature(events) {
+  return JSON.stringify(
+    events.map((event) => [event.id, event.date, event.time || "", event.ownerId || "", event.title, event.note || ""]),
+  );
+}
+
+function buildSyncFeedback(previousEvents, nextEvents) {
+  if (eventsSignature(previousEvents) === eventsSignature(nextEvents)) return "";
+
+  const previousIds = new Set(previousEvents.map((event) => event.id));
+  const nextIds = new Set(nextEvents.map((event) => event.id));
+  const added = nextEvents.filter((event) => !previousIds.has(event.id));
+  const removed = previousEvents.filter((event) => !nextIds.has(event.id));
+
+  if (added.length === 1) return `Добавлено: ${added[0].title}`;
+  if (added.length > 1) return `Добавлено дел: ${added.length}`;
+  if (removed.length === 1) return `Удалено: ${removed[0].title}`;
+  if (removed.length > 1) return `Удалено дел: ${removed.length}`;
+  return "Дела обновлены";
+}
+
+function clockPoint(value, total, radius) {
+  const angle = (Number(value) / total) * Math.PI * 2 - Math.PI / 2;
+  return {
+    "--x": `${Math.cos(angle) * radius}px`,
+    "--y": `${Math.sin(angle) * radius}px`,
+  };
+}
+
 function TimePicker({ value, onChange }) {
   const [open, setOpen] = useState(false);
   const [draftHour, setDraftHour] = useState(value ? value.slice(0, 2) : "09");
+  const [draftMinute, setDraftMinute] = useState(value ? value.slice(3, 5) : "00");
+  const [mode, setMode] = useState("hour");
+  const pickerRef = useRef(null);
   const label = value || "весь день";
 
   useEffect(() => {
-    if (value) setDraftHour(value.slice(0, 2));
+    if (!value) return;
+    setDraftHour(value.slice(0, 2));
+    setDraftMinute(value.slice(3, 5));
   }, [value]);
 
-  function pickMinute(minute) {
+  useEffect(() => {
+    if (!open) return undefined;
+
+    function handlePointerDown(event) {
+      if (pickerRef.current?.contains(event.target)) return;
+      setOpen(false);
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [open]);
+
+  function pickHour(hour) {
+    setDraftHour(hour);
+    setMode("minute");
+  }
+
+  function commitTime(minute = draftMinute) {
     onChange(`${draftHour}:${minute}`);
     setOpen(false);
   }
 
   return (
-    <div className="time-picker">
-      <button className="time-trigger" type="button" onClick={() => setOpen((current) => !current)}>
+    <div className="time-picker" ref={pickerRef}>
+      <button
+        className="time-trigger"
+        type="button"
+        onClick={() => {
+          setOpen((current) => !current);
+          setMode("hour");
+        }}
+      >
         <Clock3 size={17} />
         {label}
       </button>
 
       {open ? (
-        <div className="time-popover">
-          <div className="clock-title">Циферблат</div>
-          <div className="hour-grid" aria-label="Часы">
-            {HOURS.map((hour) => (
+        <div className="time-popover" role="dialog" aria-label="Выбор времени">
+          <div className="time-popover-head">
+            <div className="clock-display" aria-label="Выбранное время">
               <button
-                className={`time-token${draftHour === hour ? " selected" : ""}`}
-                key={hour}
+                className={`clock-display-part${mode === "hour" ? " active" : ""}`}
                 type="button"
-                onClick={() => setDraftHour(hour)}
+                onClick={() => setMode("hour")}
               >
-                {hour}
+                {draftHour}
               </button>
-            ))}
-          </div>
-          <div className="minute-grid" aria-label="Минуты">
-            {MINUTES.map((minute) => (
-              <button className="time-token minute" key={minute} type="button" onClick={() => pickMinute(minute)}>
-                {draftHour}:{minute}
+              <span>:</span>
+              <button
+                className={`clock-display-part${mode === "minute" ? " active" : ""}`}
+                type="button"
+                onClick={() => setMode("minute")}
+              >
+                {draftMinute}
               </button>
-            ))}
+            </div>
+            <button className="icon-button subtle compact" type="button" onClick={() => setOpen(false)} aria-label="Закрыть">
+              <X size={16} />
+            </button>
           </div>
-          <button
-            className="clear-time-button"
-            type="button"
-            onClick={() => {
-              onChange("");
-              setOpen(false);
-            }}
-          >
-            Весь день
-          </button>
+
+          <div className={`clock-face ${mode}`} aria-label={mode === "hour" ? "Часы" : "Минуты"}>
+            <div className="clock-center">
+              <span>{mode === "hour" ? "час" : "мин"}</span>
+              <strong>
+                {draftHour}:{draftMinute}
+              </strong>
+            </div>
+
+            {(mode === "hour" ? HOURS : MINUTES).map((item) => {
+              const radius = mode === "hour" ? (Number(item) % 2 === 0 ? 105 : 72) : 103;
+              const style = clockPoint(item, mode === "hour" ? 24 : 60, radius);
+              const selected = mode === "hour" ? draftHour === item : draftMinute === item;
+
+              return (
+                <button
+                  className={`clock-option${selected ? " selected" : ""}${mode === "minute" ? " minute" : ""}`}
+                  key={item}
+                  type="button"
+                  style={style}
+                  onClick={() => {
+                    if (mode === "hour") {
+                      pickHour(item);
+                      return;
+                    }
+                    setDraftMinute(item);
+                    commitTime(item);
+                  }}
+                >
+                  {item}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="time-popover-actions">
+            <button
+              className="clear-time-button"
+              type="button"
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+              }}
+            >
+              Весь день
+            </button>
+            <button className="done-time-button" type="button" onClick={() => commitTime()}>
+              Готово
+            </button>
+          </div>
         </div>
       ) : null}
     </div>
@@ -131,6 +231,8 @@ export default function CalendarPage() {
   const [feedback, setFeedback] = useState("");
   const [deletingId, setDeletingId] = useState(null);
   const [deletePassword, setDeletePassword] = useState("");
+  const eventsRef = useRef([]);
+  const eventsLoadedRef = useRef(false);
 
   const dateContext = useMemo(
     () => ({ todayKey, todayLocked, todayAfterDigest }),
@@ -151,7 +253,14 @@ export default function CalendarPage() {
       throw new Error(payload.error || "Не удалось загрузить дела");
     }
 
-    setEvents(sortEvents(payload.events || []));
+    const nextEvents = sortEvents(payload.events || []);
+    if (quiet && eventsLoadedRef.current) {
+      const syncFeedback = buildSyncFeedback(eventsRef.current, nextEvents);
+      if (syncFeedback) setFeedback(syncFeedback);
+    }
+    eventsRef.current = nextEvents;
+    eventsLoadedRef.current = true;
+    setEvents(nextEvents);
     setTodayKey(payload.todayKey || getTodayKey());
     setTodayLocked(Boolean(payload.todayLocked));
     setTodayAfterDigest(Boolean(payload.todayAfterDigest));
@@ -170,6 +279,16 @@ export default function CalendarPage() {
 
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!feedback) return undefined;
+
+    const timer = window.setTimeout(() => {
+      setFeedback("");
+    }, 3600);
+
+    return () => window.clearTimeout(timer);
+  }, [feedback]);
 
   useEffect(() => {
     function handleKeyDown(event) {
@@ -317,7 +436,10 @@ export default function CalendarPage() {
         throw new Error(payload.error || "Не удалось сохранить");
       }
 
-      setEvents(sortEvents(payload.events));
+      const nextEvents = sortEvents(payload.events);
+      eventsRef.current = nextEvents;
+      eventsLoadedRef.current = true;
+      setEvents(nextEvents);
       setOwnerPasswordStatus((current) => ({ ...current, [form.ownerId]: true }));
       resetForm(form.date);
       selectDate(form.date, { toggleSame: false });
@@ -353,7 +475,10 @@ export default function CalendarPage() {
         throw new Error(payload.error || "Не удалось удалить");
       }
 
-      setEvents(sortEvents(payload.events));
+      const nextEvents = sortEvents(payload.events);
+      eventsRef.current = nextEvents;
+      eventsLoadedRef.current = true;
+      setEvents(nextEvents);
       if (editingId === id) resetForm();
       setDeletingId(null);
       setDeletePassword("");
