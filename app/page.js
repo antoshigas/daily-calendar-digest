@@ -5,6 +5,8 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  PanelRightClose,
+  PanelRightOpen,
   Pencil,
   Plus,
   RefreshCw,
@@ -13,11 +15,14 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
+  DEFAULT_OWNER_ID,
+  PEOPLE,
   addDaysToKey,
   buildMonthCells,
   formatDisplayDate,
   formatMonthLabel,
   getDateLockReason,
+  getPersonName,
   getTodayKey,
   isSameMonth,
   isWritableDateKey,
@@ -26,10 +31,12 @@ import {
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
-function emptyForm(date) {
+function emptyForm(date, ownerId = DEFAULT_OWNER_ID) {
   return {
     date,
     time: "",
+    ownerId,
+    ownerPassword: "",
     title: "",
     note: "",
   };
@@ -51,7 +58,9 @@ export default function CalendarPage() {
   const [selectedDate, setSelectedDate] = useState(initialTodayKey);
   const [events, setEvents] = useState([]);
   const [form, setForm] = useState(emptyForm(initialTodayKey));
+  const [ownerPasswordStatus, setOwnerPasswordStatus] = useState({});
   const [editingId, setEditingId] = useState(null);
+  const [detailsOpen, setDetailsOpen] = useState(true);
   const [status, setStatus] = useState("Загрузка");
   const [busy, setBusy] = useState(false);
 
@@ -73,6 +82,7 @@ export default function CalendarPage() {
     setEvents(sortEvents(payload.events || []));
     setTodayKey(payload.todayKey || getTodayKey());
     setTodayLocked(Boolean(payload.todayLocked));
+    setOwnerPasswordStatus(payload.ownerPasswordStatus || {});
     setStatus("Готово");
   }
 
@@ -105,7 +115,12 @@ export default function CalendarPage() {
 
   useEffect(() => {
     if (!editingId) {
-      setForm((current) => ({ ...emptyForm(selectedDate), title: current.title, note: current.note }));
+      setForm((current) => ({
+        ...emptyForm(selectedDate, current.ownerId),
+        ownerPassword: current.ownerPassword,
+        title: current.title,
+        note: current.note,
+      }));
     }
   }, [selectedDate, editingId]);
 
@@ -113,18 +128,32 @@ export default function CalendarPage() {
     setViewDate((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
   }
 
-  function selectDate(dateKey) {
+  function selectDate(dateKey, { toggleSame = true } = {}) {
+    if (toggleSame && detailsOpen && selectedDate === dateKey) {
+      setDetailsOpen(false);
+      setEditingId(null);
+      return;
+    }
+
     const nextDate = keyToDate(dateKey);
     setViewDate((current) =>
       isSameMonth(nextDate, current) ? current : new Date(nextDate.getFullYear(), nextDate.getMonth(), 1),
     );
     setSelectedDate(dateKey);
-    if (!editingId) setForm(emptyForm(dateKey));
+    setDetailsOpen(true);
+    if (!editingId) {
+      setForm((current) => emptyForm(dateKey, current.ownerId));
+    }
+  }
+
+  function closeDetails() {
+    setDetailsOpen(false);
+    setEditingId(null);
   }
 
   function jumpToday() {
     const canOpenToday = isWritableDateKey(todayKey, dateContext) || todayEvents.length > 0;
-    selectDate(canOpenToday ? todayKey : firstWritableDate);
+    selectDate(canOpenToday ? todayKey : firstWritableDate, { toggleSame: false });
     setEditingId(null);
   }
 
@@ -135,10 +164,12 @@ export default function CalendarPage() {
     }
 
     setEditingId(event.id);
-    selectDate(event.date);
+    selectDate(event.date, { toggleSame: false });
     setForm({
       date: event.date,
       time: event.time || "",
+      ownerId: event.ownerId || DEFAULT_OWNER_ID,
+      ownerPassword: "",
       title: event.title,
       note: event.note || "",
     });
@@ -146,7 +177,7 @@ export default function CalendarPage() {
 
   function resetForm(date = selectedDate) {
     setEditingId(null);
-    setForm(emptyForm(date));
+    setForm((current) => emptyForm(date, current.ownerId));
   }
 
   async function saveEvent(event) {
@@ -178,8 +209,9 @@ export default function CalendarPage() {
       }
 
       setEvents(sortEvents(payload.events));
+      setOwnerPasswordStatus((current) => ({ ...current, [form.ownerId]: true }));
       resetForm(form.date);
-      selectDate(form.date);
+      selectDate(form.date, { toggleSame: false });
       setStatus("Сохранено");
     } catch (error) {
       setStatus(error.message);
@@ -195,12 +227,20 @@ export default function CalendarPage() {
       return;
     }
 
+    const ownerPassword = window.prompt(`Пароль для ${getPersonName(target?.ownerId)}`);
+    if (!ownerPassword) {
+      setStatus("Удаление отменено");
+      return;
+    }
+
     setBusy(true);
     setStatus("Удаление");
 
     try {
       const response = await fetch(`/api/events?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ownerPassword }),
       });
       const payload = await response.json();
 
@@ -219,7 +259,9 @@ export default function CalendarPage() {
   }
 
   return (
-    <main className="app-shell">
+    <>
+      <div className="cosmic-backdrop" aria-hidden="true" />
+      <main className={`app-shell${detailsOpen ? "" : " details-collapsed"}`}>
       <section className="calendar-panel" aria-label="Календарь">
         <header className="topbar">
           <div className="brand">
@@ -227,7 +269,7 @@ export default function CalendarPage() {
               <CalendarDays size={22} strokeWidth={2.2} />
             </span>
             <div>
-              <h1>Календарь</h1>
+              <h1>Орбита дел</h1>
               <p>{status}</p>
             </div>
           </div>
@@ -247,14 +289,26 @@ export default function CalendarPage() {
 
         <div className="month-title-row">
           <h2>{formatMonthLabel(viewDate)}</h2>
-          <button
-            className="icon-button subtle"
-            type="button"
-            onClick={() => loadEvents().catch((error) => setStatus(error.message))}
-            aria-label="Обновить"
-          >
-            <RefreshCw size={18} />
-          </button>
+          <div className="month-actions">
+            <button
+              className="icon-button subtle"
+              type="button"
+              onClick={() => loadEvents().catch((error) => setStatus(error.message))}
+              aria-label="Обновить"
+              title="Обновить"
+            >
+              <RefreshCw size={18} />
+            </button>
+            <button
+              className={`icon-button subtle${detailsOpen ? " active-control" : ""}`}
+              type="button"
+              onClick={() => setDetailsOpen((current) => !current)}
+              aria-label={detailsOpen ? "Скрыть детали дня" : "Показать детали дня"}
+              title={detailsOpen ? "Скрыть детали дня" : "Показать детали дня"}
+            >
+              {detailsOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+            </button>
+          </div>
         </div>
 
         <div className="weekday-grid" aria-hidden="true">
@@ -266,7 +320,7 @@ export default function CalendarPage() {
         <div className="month-grid">
           {monthCells.map((cell) => {
             const dayEvents = eventsByDate[cell.key] || [];
-            const active = selectedDate === cell.key;
+            const active = detailsOpen && selectedDate === cell.key;
             const muted = !isSameMonth(cell.date, viewDate);
             const writable = isWritableDateKey(cell.key, dateContext);
             const canOpen = writable || dayEvents.length > 0;
@@ -286,7 +340,7 @@ export default function CalendarPage() {
                   {dayEvents.slice(0, 2).map((event) => (
                     <span className="event-chip" key={event.id}>
                       <span>{event.time || "весь день"}</span>
-                      {event.title}
+                      {getPersonName(event.ownerId)} · {event.title}
                     </span>
                   ))}
                   {dayEvents.length > 2 ? <span className="more-chip">+{dayEvents.length - 2}</span> : null}
@@ -297,13 +351,19 @@ export default function CalendarPage() {
         </div>
       </section>
 
+      {detailsOpen ? (
       <aside className="details-panel" aria-label="Дела на выбранный день">
         <div className="details-header">
           <div>
             <p>Выбранный день</p>
             <h2>{formatDisplayDate(selectedDate)}</h2>
           </div>
-          <span className="count-badge">{selectedEvents.length}</span>
+          <div className="details-header-actions">
+            <span className="count-badge">{selectedEvents.length}</span>
+            <button className="icon-button subtle" type="button" onClick={closeDetails} aria-label="Скрыть детали дня" title="Скрыть детали дня">
+              <PanelRightClose size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="event-list">
@@ -317,6 +377,9 @@ export default function CalendarPage() {
               <article className="event-row" key={event.id}>
                 <div className="event-time">{event.time || "весь день"}</div>
                 <div className="event-content">
+                  <span className={`owner-pill owner-${event.ownerId || DEFAULT_OWNER_ID}`}>
+                    {getPersonName(event.ownerId)}
+                  </span>
                   <h3>{event.title}</h3>
                   {event.note ? <p>{event.note}</p> : null}
                 </div>
@@ -368,6 +431,37 @@ export default function CalendarPage() {
               />
             </label>
 
+            <div className="owner-field">
+              <span>Человек</span>
+              <div className="owner-picker" role="radiogroup" aria-label="Человек">
+                {PEOPLE.map((person) => (
+                  <button
+                    className={`owner-option owner-${person.id}${form.ownerId === person.id ? " selected" : ""}`}
+                    disabled={Boolean(editingId)}
+                    key={person.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={form.ownerId === person.id}
+                    onClick={() => setForm((current) => ({ ...current, ownerId: person.id, ownerPassword: "" }))}
+                  >
+                    {person.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <label>
+              Пароль
+              <input
+                type="password"
+                value={form.ownerPassword}
+                onChange={(event) => setForm((current) => ({ ...current, ownerPassword: event.target.value }))}
+                minLength={4}
+                required
+                placeholder={ownerPasswordStatus[form.ownerId] ? "Пароль человека" : "Придумайте первый пароль"}
+              />
+            </label>
+
             <label>
               Время
               <input
@@ -410,6 +504,8 @@ export default function CalendarPage() {
           </div>
         )}
       </aside>
-    </main>
+      ) : null}
+      </main>
+    </>
   );
 }

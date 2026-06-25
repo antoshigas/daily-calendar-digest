@@ -4,7 +4,7 @@ Responsive monthly calendar with a daily Telegram digest.
 
 ## Storage
 
-Production stores events and daily digest run markers in Upstash Redis connected through Vercel Marketplace. The app supports these Redis env pairs:
+Production stores events, owner password hashes, and daily digest run markers in Upstash Redis connected through Vercel Marketplace. The app supports these Redis env pairs:
 
 - `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`
 - `KV_REST_API_URL` and `KV_REST_API_TOKEN`
@@ -14,6 +14,7 @@ Local development falls back to JSON files:
 
 - `data/events.local.json`
 - `data/digest-runs.local.json`
+- `data/owner-passwords.local.json`
 
 ## Calendar Rules
 
@@ -21,6 +22,9 @@ Local development falls back to JSON files:
 - Past days with events can be opened for viewing only.
 - Today is writable until the daily cron endpoint runs.
 - After the cron runs, today becomes view-only too.
+- Each event belongs to exactly one person: Elena, Anton, Stanislovas, or Alexey.
+- A person's password is created on their first event. Later create, edit, and delete actions for that person require the same password.
+- Passwords are stored as salted hashes, not plain text.
 
 ## Files
 
@@ -38,6 +42,7 @@ Local development falls back to JSON files:
     "id": "doctor-2026-07-01",
     "date": "2026-07-01",
     "time": "09:30",
+    "ownerId": "elena",
     "title": "Врач",
     "note": "Взять документы"
   }
@@ -70,6 +75,6 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
   "https://your-domain.vercel.app/api/cron/morning?dryRun=1"
 ```
 
-`dryRun=1` returns the message payload without sending Telegram and without locking today.
+`dryRun=1` returns the message payload without sending Telegram and without locking today. The daily message always includes all four people. If someone has no events, the digest explicitly says that there are no events for that person.
 
 To test the full flow, remove `dryRun=1`. That sends the Telegram message immediately and marks today as already processed, so today's date becomes view-only.

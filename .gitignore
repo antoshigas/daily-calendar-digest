@@ -6,4 +6,5 @@ node_modules/
 work/
 data/events.local.json
 data/digest-runs.local.json
+data/owner-passwords.local.json
 .next/

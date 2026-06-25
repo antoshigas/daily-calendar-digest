@@ -49,6 +49,7 @@ export async function GET(request) {
     const events = await readEvents();
     const todaysEvents = events.filter((event) => event.date === today);
     const alreadyRun = await hasDigestRun(today);
+    const message = buildTelegramMessage(todaysEvents, now);
 
     if (alreadyRun && !dryRun) {
       return Response.json({
@@ -59,22 +60,6 @@ export async function GET(request) {
         count: todaysEvents.length,
       });
     }
-
-    if (todaysEvents.length === 0) {
-      if (!dryRun) {
-        await markDigestRun(today);
-      }
-
-      return Response.json({
-        ok: true,
-        sent: false,
-        dryRun,
-        date: today,
-        count: 0,
-      });
-    }
-
-    const message = buildTelegramMessage(todaysEvents, now);
 
     if (dryRun) {
       return Response.json({
