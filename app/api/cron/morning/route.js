@@ -9,16 +9,6 @@ export const dynamic = "force-dynamic";
 
 const PERSONAL_RECIPIENTS = [
   {
-    id: "anton",
-    envName: "TELEGRAM_CHAT_ID_ANTON",
-    ownerIds: ["anton", "alexey"],
-  },
-  {
-    id: "elena",
-    envName: "TELEGRAM_CHAT_ID_ELENA",
-    ownerIds: ["elena", "alexey"],
-  },
-  {
     id: "kristina",
     envName: "TELEGRAM_CHAT_ID_KRISTINA",
     ownerIds: ["kristina"],

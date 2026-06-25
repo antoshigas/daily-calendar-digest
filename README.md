@@ -32,10 +32,8 @@ Local development falls back to JSON files:
 
 The main channel receives the full daily digest for all four people.
 
-Optional personal recipients use env vars:
+Optional personal recipient uses env vars:
 
-- `TELEGRAM_CHAT_ID_ANTON` receives Anton plus Alexey.
-- `TELEGRAM_CHAT_ID_ELENA` receives Elena plus Alexey.
 - `TELEGRAM_CHAT_ID_KRISTINA` receives Kristina.
 
 Telegram bots can send a personal message only after that user opens the bot and sends `/start` or any message once.
