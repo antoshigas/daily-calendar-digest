@@ -5,4 +5,5 @@ node_modules/
 .vercel/
 work/
 data/events.local.json
+data/digest-runs.local.json
 .next/

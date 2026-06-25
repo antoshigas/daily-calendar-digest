@@ -1,5 +1,5 @@
 import { buildTelegramMessage, getBerlinDateKey } from "../../../../lib/calendar.js";
-import { readEvents } from "../../../../lib/storage.js";
+import { hasDigestRun, markDigestRun, readEvents } from "../../../../lib/storage.js";
 
 export const dynamic = "force-dynamic";
 
@@ -40,25 +40,41 @@ export async function GET(request) {
   }
 
   try {
+    const searchParams = request.nextUrl
+      ? request.nextUrl.searchParams
+      : new URL(request.url).searchParams;
+    const dryRun = searchParams.get("dryRun") === "1" || process.env.DRY_RUN === "1";
     const now = new Date();
     const today = getBerlinDateKey(now);
     const events = await readEvents();
     const todaysEvents = events.filter((event) => event.date === today);
+    const alreadyRun = await hasDigestRun(today);
 
-    if (todaysEvents.length === 0) {
+    if (alreadyRun && !dryRun) {
       return Response.json({
         ok: true,
         sent: false,
+        alreadyRun: true,
+        date: today,
+        count: todaysEvents.length,
+      });
+    }
+
+    if (todaysEvents.length === 0) {
+      if (!dryRun) {
+        await markDigestRun(today);
+      }
+
+      return Response.json({
+        ok: true,
+        sent: false,
+        dryRun,
         date: today,
         count: 0,
       });
     }
 
-    const searchParams = request.nextUrl
-      ? request.nextUrl.searchParams
-      : new URL(request.url).searchParams;
     const message = buildTelegramMessage(todaysEvents, now);
-    const dryRun = searchParams.get("dryRun") === "1" || process.env.DRY_RUN === "1";
 
     if (dryRun) {
       return Response.json({
@@ -72,6 +88,7 @@ export async function GET(request) {
     }
 
     await sendTelegramMessage(message);
+    await markDigestRun(today);
 
     return Response.json({
       ok: true,

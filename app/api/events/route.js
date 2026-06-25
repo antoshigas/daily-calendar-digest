@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { readEvents, writeEvents } from "../../../lib/storage.js";
+import { getBerlinDateKey, getDateLockReason, isWritableDateKey } from "../../../lib/calendar.js";
+import { hasDigestRun, readEvents, writeEvents } from "../../../lib/storage.js";
 
 export const dynamic = "force-dynamic";
 
@@ -37,16 +38,34 @@ function cleanEvent(input, id) {
   };
 }
 
+async function getWriteContext() {
+  const todayKey = getBerlinDateKey();
+  const todayLocked = await hasDigestRun(todayKey);
+
+  return { todayKey, todayLocked };
+}
+
+function assertWritableDate(dateKey, context) {
+  if (!isWritableDateKey(dateKey, context)) {
+    throw new Error(getDateLockReason(dateKey, context));
+  }
+}
+
 export async function GET() {
-  const events = await readEvents();
-  return Response.json({ ok: true, events });
+  const todayKey = getBerlinDateKey();
+  const [events, todayLocked] = await Promise.all([readEvents(), hasDigestRun(todayKey)]);
+
+  return Response.json({ ok: true, events, todayKey, todayLocked });
 }
 
 export async function POST(request) {
   try {
     const input = await request.json();
-    const events = await readEvents();
+    const context = await getWriteContext();
     const nextEvent = cleanEvent(input, randomUUID());
+    assertWritableDate(nextEvent.date, context);
+
+    const events = await readEvents();
     const nextEvents = await writeEvents([...events, nextEvent]);
 
     return Response.json({ ok: true, event: nextEvent, events: nextEvents }, { status: 201 });
@@ -71,7 +90,11 @@ export async function PUT(request) {
       return jsonError("Дело не найдено", 404);
     }
 
+    const context = await getWriteContext();
     const nextEvent = cleanEvent(input, id);
+    assertWritableDate(events[index].date, context);
+    assertWritableDate(nextEvent.date, context);
+
     const nextEvents = [...events];
     nextEvents[index] = nextEvent;
 
@@ -82,18 +105,27 @@ export async function PUT(request) {
 }
 
 export async function DELETE(request) {
-  const id = new URL(request.url).searchParams.get("id");
+  try {
+    const id = new URL(request.url).searchParams.get("id");
 
-  if (!id) {
-    return jsonError("Не найден id");
+    if (!id) {
+      return jsonError("Не найден id");
+    }
+
+    const events = await readEvents();
+    const target = events.find((event) => event.id === id);
+
+    if (!target) {
+      return jsonError("Дело не найдено", 404);
+    }
+
+    const context = await getWriteContext();
+    assertWritableDate(target.date, context);
+
+    const nextEvents = events.filter((event) => event.id !== id);
+
+    return Response.json({ ok: true, events: await writeEvents(nextEvents) });
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : "Не удалось удалить");
   }
-
-  const events = await readEvents();
-  const nextEvents = events.filter((event) => event.id !== id);
-
-  if (nextEvents.length === events.length) {
-    return jsonError("Дело не найдено", 404);
-  }
-
-  return Response.json({ ok: true, events: await writeEvents(nextEvents) });
 }

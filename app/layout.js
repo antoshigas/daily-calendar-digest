@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Daily Calendar Digest",
-  description: "Monthly calendar with Telegram daily digest",
+  title: "Календарь",
+  description: "Ежедневник с Telegram-рассылкой",
 };
 
 export default function RootLayout({ children }) {

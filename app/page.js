@@ -13,11 +13,15 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
+  addDaysToKey,
   buildMonthCells,
   formatDisplayDate,
   formatMonthLabel,
+  getDateLockReason,
   getTodayKey,
   isSameMonth,
+  isWritableDateKey,
+  keyToDate,
 } from "../lib/calendar.js";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
@@ -40,15 +44,22 @@ function sortEvents(events) {
 }
 
 export default function CalendarPage() {
-  const todayKey = useMemo(() => getTodayKey(), []);
-  const today = useMemo(() => new Date(), []);
-  const [viewDate, setViewDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
-  const [selectedDate, setSelectedDate] = useState(todayKey);
+  const initialTodayKey = useMemo(() => getTodayKey(), []);
+  const [todayKey, setTodayKey] = useState(initialTodayKey);
+  const [todayLocked, setTodayLocked] = useState(false);
+  const [viewDate, setViewDate] = useState(() => keyToDate(initialTodayKey));
+  const [selectedDate, setSelectedDate] = useState(initialTodayKey);
   const [events, setEvents] = useState([]);
-  const [form, setForm] = useState(emptyForm(todayKey));
+  const [form, setForm] = useState(emptyForm(initialTodayKey));
   const [editingId, setEditingId] = useState(null);
   const [status, setStatus] = useState("Загрузка");
   const [busy, setBusy] = useState(false);
+
+  const dateContext = useMemo(() => ({ todayKey, todayLocked }), [todayKey, todayLocked]);
+  const firstWritableDate = useMemo(
+    () => (todayLocked ? addDaysToKey(todayKey, 1) : todayKey),
+    [todayKey, todayLocked],
+  );
 
   async function loadEvents() {
     setStatus("Загрузка");
@@ -60,18 +71,14 @@ export default function CalendarPage() {
     }
 
     setEvents(sortEvents(payload.events || []));
+    setTodayKey(payload.todayKey || getTodayKey());
+    setTodayLocked(Boolean(payload.todayLocked));
     setStatus("Готово");
   }
 
   useEffect(() => {
     loadEvents().catch((error) => setStatus(error.message));
   }, []);
-
-  useEffect(() => {
-    if (!editingId) {
-      setForm((current) => ({ ...emptyForm(selectedDate), title: current.title, note: current.note }));
-    }
-  }, [selectedDate, editingId]);
 
   const monthCells = useMemo(() => buildMonthCells(viewDate), [viewDate]);
   const eventsByDate = useMemo(() => {
@@ -82,22 +89,53 @@ export default function CalendarPage() {
     }, {});
   }, [events]);
   const selectedEvents = eventsByDate[selectedDate] || [];
+  const todayEvents = eventsByDate[todayKey] || [];
+  const selectedWritable = isWritableDateKey(selectedDate, dateContext);
+  const selectedLockReason = getDateLockReason(selectedDate, dateContext);
+
+  useEffect(() => {
+    if (selectedWritable || selectedEvents.length > 0) return;
+
+    setSelectedDate(firstWritableDate);
+    setForm(emptyForm(firstWritableDate));
+
+    const nextViewDate = keyToDate(firstWritableDate);
+    setViewDate(new Date(nextViewDate.getFullYear(), nextViewDate.getMonth(), 1));
+  }, [firstWritableDate, selectedEvents.length, selectedWritable]);
+
+  useEffect(() => {
+    if (!editingId) {
+      setForm((current) => ({ ...emptyForm(selectedDate), title: current.title, note: current.note }));
+    }
+  }, [selectedDate, editingId]);
 
   function moveMonth(offset) {
     setViewDate((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
   }
 
+  function selectDate(dateKey) {
+    const nextDate = keyToDate(dateKey);
+    setViewDate((current) =>
+      isSameMonth(nextDate, current) ? current : new Date(nextDate.getFullYear(), nextDate.getMonth(), 1),
+    );
+    setSelectedDate(dateKey);
+    if (!editingId) setForm(emptyForm(dateKey));
+  }
+
   function jumpToday() {
-    const next = new Date();
-    setViewDate(new Date(next.getFullYear(), next.getMonth(), 1));
-    setSelectedDate(getTodayKey(next));
+    const canOpenToday = isWritableDateKey(todayKey, dateContext) || todayEvents.length > 0;
+    selectDate(canOpenToday ? todayKey : firstWritableDate);
     setEditingId(null);
-    setForm(emptyForm(getTodayKey(next)));
   }
 
   function startEdit(event) {
+    if (!isWritableDateKey(event.date, dateContext)) {
+      setStatus(getDateLockReason(event.date, dateContext));
+      return;
+    }
+
     setEditingId(event.id);
-    setSelectedDate(event.date);
+    selectDate(event.date);
     setForm({
       date: event.date,
       time: event.time || "",
@@ -113,6 +151,16 @@ export default function CalendarPage() {
 
   async function saveEvent(event) {
     event.preventDefault();
+
+    const existingEvent = editingId ? events.find((item) => item.id === editingId) : null;
+    if (
+      !isWritableDateKey(form.date, dateContext) ||
+      (existingEvent && !isWritableDateKey(existingEvent.date, dateContext))
+    ) {
+      setStatus(getDateLockReason(existingEvent?.date || form.date, dateContext));
+      return;
+    }
+
     setBusy(true);
     setStatus("Сохранение");
 
@@ -131,7 +179,7 @@ export default function CalendarPage() {
 
       setEvents(sortEvents(payload.events));
       resetForm(form.date);
-      setSelectedDate(form.date);
+      selectDate(form.date);
       setStatus("Сохранено");
     } catch (error) {
       setStatus(error.message);
@@ -141,6 +189,12 @@ export default function CalendarPage() {
   }
 
   async function deleteEvent(id) {
+    const target = events.find((event) => event.id === id);
+    if (target && !isWritableDateKey(target.date, dateContext)) {
+      setStatus(getDateLockReason(target.date, dateContext));
+      return;
+    }
+
     setBusy(true);
     setStatus("Удаление");
 
@@ -193,7 +247,12 @@ export default function CalendarPage() {
 
         <div className="month-title-row">
           <h2>{formatMonthLabel(viewDate)}</h2>
-          <button className="icon-button subtle" type="button" onClick={() => loadEvents().catch((error) => setStatus(error.message))} aria-label="Обновить">
+          <button
+            className="icon-button subtle"
+            type="button"
+            onClick={() => loadEvents().catch((error) => setStatus(error.message))}
+            aria-label="Обновить"
+          >
             <RefreshCw size={18} />
           </button>
         </div>
@@ -209,16 +268,18 @@ export default function CalendarPage() {
             const dayEvents = eventsByDate[cell.key] || [];
             const active = selectedDate === cell.key;
             const muted = !isSameMonth(cell.date, viewDate);
+            const writable = isWritableDateKey(cell.key, dateContext);
+            const canOpen = writable || dayEvents.length > 0;
 
             return (
               <button
-                className={`day-cell${active ? " active" : ""}${muted ? " muted" : ""}${cell.key === todayKey ? " today" : ""}`}
+                className={`day-cell${active ? " active" : ""}${muted ? " muted" : ""}${
+                  cell.key === todayKey ? " today" : ""
+                }${!writable ? " closed" : ""}${!canOpen ? " inactive" : ""}`}
+                disabled={!canOpen}
                 key={cell.key}
                 type="button"
-                onClick={() => {
-                  setSelectedDate(cell.key);
-                  if (!editingId) setForm(emptyForm(cell.key));
-                }}
+                onClick={() => selectDate(cell.key)}
               >
                 <span className="day-number">{cell.date.getDate()}</span>
                 <span className="day-events">
@@ -246,84 +307,108 @@ export default function CalendarPage() {
         </div>
 
         <div className="event-list">
-          {selectedEvents.length === 0 ? <p className="empty-state">Нет дел</p> : null}
-          {selectedEvents.map((event) => (
-            <article className="event-row" key={event.id}>
-              <div className="event-time">{event.time || "весь день"}</div>
-              <div className="event-content">
-                <h3>{event.title}</h3>
-                {event.note ? <p>{event.note}</p> : null}
-              </div>
-              <div className="row-actions">
-                <button className="icon-button subtle" type="button" onClick={() => startEdit(event)} aria-label="Редактировать">
-                  <Pencil size={17} />
-                </button>
-                <button className="icon-button danger" type="button" onClick={() => deleteEvent(event.id)} aria-label="Удалить">
-                  <Trash2 size={17} />
-                </button>
-              </div>
-            </article>
-          ))}
+          {selectedEvents.length === 0 ? (
+            <p className="empty-state">{selectedWritable ? "Нет дел" : "День закрыт"}</p>
+          ) : null}
+          {selectedEvents.map((event) => {
+            const eventWritable = isWritableDateKey(event.date, dateContext);
+
+            return (
+              <article className="event-row" key={event.id}>
+                <div className="event-time">{event.time || "весь день"}</div>
+                <div className="event-content">
+                  <h3>{event.title}</h3>
+                  {event.note ? <p>{event.note}</p> : null}
+                </div>
+                {eventWritable ? (
+                  <div className="row-actions">
+                    <button className="icon-button subtle" type="button" onClick={() => startEdit(event)} aria-label="Редактировать">
+                      <Pencil size={17} />
+                    </button>
+                    <button className="icon-button danger" type="button" onClick={() => deleteEvent(event.id)} aria-label="Удалить">
+                      <Trash2 size={17} />
+                    </button>
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
         </div>
 
-        <form className="event-form" onSubmit={saveEvent}>
-          <div className="form-heading">
-            <h2>{editingId ? "Редактировать" : "Добавить"}</h2>
-            {editingId ? (
-              <button className="icon-button subtle" type="button" onClick={() => resetForm()} aria-label="Отменить">
-                <X size={18} />
-              </button>
-            ) : null}
+        {selectedWritable ? (
+          <form className="event-form" onSubmit={saveEvent}>
+            <div className="form-heading">
+              <h2>{editingId ? "Редактировать" : "Добавить"}</h2>
+              {editingId ? (
+                <button className="icon-button subtle" type="button" onClick={() => resetForm()} aria-label="Отменить">
+                  <X size={18} />
+                </button>
+              ) : null}
+            </div>
+
+            <label>
+              Дата
+              <input
+                type="date"
+                min={firstWritableDate}
+                value={form.date}
+                onChange={(event) => {
+                  const nextDateKey = event.target.value;
+                  const nextDate = keyToDate(nextDateKey);
+
+                  setForm((current) => ({ ...current, date: nextDateKey }));
+                  setSelectedDate(nextDateKey);
+                  setViewDate((current) =>
+                    isSameMonth(nextDate, current)
+                      ? current
+                      : new Date(nextDate.getFullYear(), nextDate.getMonth(), 1),
+                  );
+                }}
+                required
+              />
+            </label>
+
+            <label>
+              Время
+              <input
+                type="time"
+                value={form.time}
+                onChange={(event) => setForm((current) => ({ ...current, time: event.target.value }))}
+              />
+            </label>
+
+            <label>
+              Дело
+              <input
+                type="text"
+                value={form.title}
+                onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+                maxLength={120}
+                required
+              />
+            </label>
+
+            <label>
+              Заметка
+              <textarea
+                value={form.note}
+                onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))}
+                maxLength={300}
+                rows={3}
+              />
+            </label>
+
+            <button className="save-button" type="submit" disabled={busy}>
+              {editingId ? <Check size={18} /> : <Plus size={18} />}
+              {editingId ? "Сохранить" : "Добавить"}
+            </button>
+          </form>
+        ) : (
+          <div className="readonly-note">
+            <h2>Только просмотр</h2>
+            <p>{selectedLockReason}</p>
           </div>
-
-          <label>
-            Дата
-            <input
-              type="date"
-              value={form.date}
-              onChange={(event) => {
-                setForm((current) => ({ ...current, date: event.target.value }));
-                setSelectedDate(event.target.value);
-              }}
-              required
-            />
-          </label>
-
-          <label>
-            Время
-            <input
-              type="time"
-              value={form.time}
-              onChange={(event) => setForm((current) => ({ ...current, time: event.target.value }))}
-            />
-          </label>
-
-          <label>
-            Дело
-            <input
-              type="text"
-              value={form.title}
-              onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-              maxLength={120}
-              required
-            />
-          </label>
-
-          <label>
-            Заметка
-            <textarea
-              value={form.note}
-              onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))}
-              maxLength={300}
-              rows={3}
-            />
-          </label>
-
-          <button className="save-button" type="submit" disabled={busy}>
-            {editingId ? <Check size={18} /> : <Plus size={18} />}
-            {editingId ? "Сохранить" : "Добавить"}
-          </button>
-        </form>
+        )}
       </aside>
     </main>
   );
