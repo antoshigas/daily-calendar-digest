@@ -44,6 +44,7 @@ export async function GET(request) {
       ? request.nextUrl.searchParams
       : new URL(request.url).searchParams;
     const dryRun = searchParams.get("dryRun") === "1" || process.env.DRY_RUN === "1";
+    const testSend = searchParams.get("test") === "1";
     const now = new Date();
     const today = getBerlinDateKey(now);
     const events = await readEvents();
@@ -51,7 +52,7 @@ export async function GET(request) {
     const alreadyRun = await hasDigestRun(today);
     const message = buildTelegramMessage(todaysEvents, now);
 
-    if (alreadyRun && !dryRun) {
+    if (alreadyRun && !dryRun && !testSend) {
       return Response.json({
         ok: true,
         sent: false,
@@ -69,6 +70,19 @@ export async function GET(request) {
         date: today,
         count: todaysEvents.length,
         message,
+      });
+    }
+
+    if (testSend) {
+      await sendTelegramMessage(`Тест календаря\n\n${message}`);
+
+      return Response.json({
+        ok: true,
+        sent: true,
+        test: true,
+        lockedToday: false,
+        date: today,
+        count: todaysEvents.length,
       });
     }
 

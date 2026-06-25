@@ -77,4 +77,11 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
 
 `dryRun=1` returns the message payload without sending Telegram and without locking today. The daily message always includes all four people. If someone has no events, the digest explicitly says that there are no events for that person.
 
+To send a real Telegram test message without locking today:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" \
+  "https://your-domain.vercel.app/api/cron/morning?test=1"
+```
+
 To test the full flow, remove `dryRun=1`. That sends the Telegram message immediately and marks today as already processed, so today's date becomes view-only.
