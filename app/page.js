@@ -5,6 +5,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Clock3,
   PanelRightClose,
   PanelRightOpen,
   Pencil,
@@ -13,7 +14,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_OWNER_ID,
   PEOPLE,
@@ -30,6 +31,10 @@ import {
 } from "../lib/calendar.js";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+const HOURS = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, "0"));
+const MINUTES = ["00", "15", "30", "45"];
+const AUTO_REFRESH_MS = 18000;
+const SWIPE_THRESHOLD = 56;
 
 function emptyForm(date, ownerId = DEFAULT_OWNER_ID) {
   return {
@@ -50,28 +55,95 @@ function sortEvents(events) {
   });
 }
 
+function TimePicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [draftHour, setDraftHour] = useState(value ? value.slice(0, 2) : "09");
+  const label = value || "весь день";
+
+  useEffect(() => {
+    if (value) setDraftHour(value.slice(0, 2));
+  }, [value]);
+
+  function pickMinute(minute) {
+    onChange(`${draftHour}:${minute}`);
+    setOpen(false);
+  }
+
+  return (
+    <div className="time-picker">
+      <button className="time-trigger" type="button" onClick={() => setOpen((current) => !current)}>
+        <Clock3 size={17} />
+        {label}
+      </button>
+
+      {open ? (
+        <div className="time-popover">
+          <div className="clock-title">Циферблат</div>
+          <div className="hour-grid" aria-label="Часы">
+            {HOURS.map((hour) => (
+              <button
+                className={`time-token${draftHour === hour ? " selected" : ""}`}
+                key={hour}
+                type="button"
+                onClick={() => setDraftHour(hour)}
+              >
+                {hour}
+              </button>
+            ))}
+          </div>
+          <div className="minute-grid" aria-label="Минуты">
+            {MINUTES.map((minute) => (
+              <button className="time-token minute" key={minute} type="button" onClick={() => pickMinute(minute)}>
+                {draftHour}:{minute}
+              </button>
+            ))}
+          </div>
+          <button
+            className="clear-time-button"
+            type="button"
+            onClick={() => {
+              onChange("");
+              setOpen(false);
+            }}
+          >
+            Весь день
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function CalendarPage() {
   const initialTodayKey = useMemo(() => getTodayKey(), []);
+  const swipeStartX = useRef(null);
   const [todayKey, setTodayKey] = useState(initialTodayKey);
   const [todayLocked, setTodayLocked] = useState(false);
+  const [todayAfterDigest, setTodayAfterDigest] = useState(false);
   const [viewDate, setViewDate] = useState(() => keyToDate(initialTodayKey));
   const [selectedDate, setSelectedDate] = useState(initialTodayKey);
   const [events, setEvents] = useState([]);
   const [form, setForm] = useState(emptyForm(initialTodayKey));
   const [ownerPasswordStatus, setOwnerPasswordStatus] = useState({});
   const [editingId, setEditingId] = useState(null);
-  const [detailsOpen, setDetailsOpen] = useState(true);
-  const [status, setStatus] = useState("Загрузка");
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [deletingId, setDeletingId] = useState(null);
+  const [deletePassword, setDeletePassword] = useState("");
 
-  const dateContext = useMemo(() => ({ todayKey, todayLocked }), [todayKey, todayLocked]);
+  const dateContext = useMemo(
+    () => ({ todayKey, todayLocked, todayAfterDigest }),
+    [todayKey, todayLocked, todayAfterDigest],
+  );
   const firstWritableDate = useMemo(
-    () => (todayLocked ? addDaysToKey(todayKey, 1) : todayKey),
-    [todayKey, todayLocked],
+    () => (todayLocked || todayAfterDigest ? addDaysToKey(todayKey, 1) : todayKey),
+    [todayKey, todayLocked, todayAfterDigest],
   );
 
-  async function loadEvents() {
-    setStatus("Загрузка");
+  async function loadEvents({ quiet = false } = {}) {
+    if (!quiet) setFeedback("Синхронизирую");
+
     const response = await fetch("/api/events", { cache: "no-store" });
     const payload = await response.json();
 
@@ -82,12 +154,33 @@ export default function CalendarPage() {
     setEvents(sortEvents(payload.events || []));
     setTodayKey(payload.todayKey || getTodayKey());
     setTodayLocked(Boolean(payload.todayLocked));
+    setTodayAfterDigest(Boolean(payload.todayAfterDigest));
     setOwnerPasswordStatus(payload.ownerPasswordStatus || {});
-    setStatus("Готово");
+    if (!quiet) setFeedback("Обновлено");
   }
 
   useEffect(() => {
-    loadEvents().catch((error) => setStatus(error.message));
+    loadEvents().catch((error) => setFeedback(error.message));
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      loadEvents({ quiet: true }).catch((error) => setFeedback(error.message));
+    }, AUTO_REFRESH_MS);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    function handleKeyDown(event) {
+      const tagName = document.activeElement?.tagName;
+      if (tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "BUTTON") return;
+      if (event.key === "ArrowLeft") moveMonth(-1);
+      if (event.key === "ArrowRight") moveMonth(1);
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   const monthCells = useMemo(() => buildMonthCells(viewDate), [viewDate]);
@@ -104,6 +197,7 @@ export default function CalendarPage() {
   const selectedLockReason = getDateLockReason(selectedDate, dateContext);
 
   useEffect(() => {
+    if (!detailsOpen) return;
     if (selectedWritable || selectedEvents.length > 0) return;
 
     setSelectedDate(firstWritableDate);
@@ -111,7 +205,7 @@ export default function CalendarPage() {
 
     const nextViewDate = keyToDate(firstWritableDate);
     setViewDate(new Date(nextViewDate.getFullYear(), nextViewDate.getMonth(), 1));
-  }, [firstWritableDate, selectedEvents.length, selectedWritable]);
+  }, [detailsOpen, firstWritableDate, selectedEvents.length, selectedWritable]);
 
   useEffect(() => {
     if (!editingId) {
@@ -130,8 +224,7 @@ export default function CalendarPage() {
 
   function selectDate(dateKey, { toggleSame = true } = {}) {
     if (toggleSame && detailsOpen && selectedDate === dateKey) {
-      setDetailsOpen(false);
-      setEditingId(null);
+      closeDetails();
       return;
     }
 
@@ -141,6 +234,8 @@ export default function CalendarPage() {
     );
     setSelectedDate(dateKey);
     setDetailsOpen(true);
+    setDeletingId(null);
+    setDeletePassword("");
     if (!editingId) {
       setForm((current) => emptyForm(dateKey, current.ownerId));
     }
@@ -149,6 +244,8 @@ export default function CalendarPage() {
   function closeDetails() {
     setDetailsOpen(false);
     setEditingId(null);
+    setDeletingId(null);
+    setDeletePassword("");
   }
 
   function jumpToday() {
@@ -159,11 +256,13 @@ export default function CalendarPage() {
 
   function startEdit(event) {
     if (!isWritableDateKey(event.date, dateContext)) {
-      setStatus(getDateLockReason(event.date, dateContext));
+      setFeedback(getDateLockReason(event.date, dateContext));
       return;
     }
 
     setEditingId(event.id);
+    setDeletingId(null);
+    setDeletePassword("");
     selectDate(event.date, { toggleSame: false });
     setForm({
       date: event.date,
@@ -180,6 +279,16 @@ export default function CalendarPage() {
     setForm((current) => emptyForm(date, current.ownerId));
   }
 
+  function handleSwipeEnd(clientX) {
+    if (swipeStartX.current === null) return;
+
+    const delta = clientX - swipeStartX.current;
+    swipeStartX.current = null;
+
+    if (Math.abs(delta) < SWIPE_THRESHOLD) return;
+    moveMonth(delta > 0 ? -1 : 1);
+  }
+
   async function saveEvent(event) {
     event.preventDefault();
 
@@ -188,12 +297,12 @@ export default function CalendarPage() {
       !isWritableDateKey(form.date, dateContext) ||
       (existingEvent && !isWritableDateKey(existingEvent.date, dateContext))
     ) {
-      setStatus(getDateLockReason(existingEvent?.date || form.date, dateContext));
+      setFeedback(getDateLockReason(existingEvent?.date || form.date, dateContext));
       return;
     }
 
     setBusy(true);
-    setStatus("Сохранение");
+    setFeedback("Сохраняю");
 
     try {
       const method = editingId ? "PUT" : "POST";
@@ -212,35 +321,31 @@ export default function CalendarPage() {
       setOwnerPasswordStatus((current) => ({ ...current, [form.ownerId]: true }));
       resetForm(form.date);
       selectDate(form.date, { toggleSame: false });
-      setStatus("Сохранено");
+      setFeedback("Сохранено");
     } catch (error) {
-      setStatus(error.message);
+      setFeedback(error.message);
     } finally {
       setBusy(false);
     }
   }
 
-  async function deleteEvent(id) {
-    const target = events.find((event) => event.id === id);
-    if (target && !isWritableDateKey(target.date, dateContext)) {
-      setStatus(getDateLockReason(target.date, dateContext));
-      return;
-    }
+  async function deleteEvent(event, id) {
+    event.preventDefault();
 
-    const ownerPassword = window.prompt(`Пароль для ${getPersonName(target?.ownerId)}`);
-    if (!ownerPassword) {
-      setStatus("Удаление отменено");
+    const target = events.find((item) => item.id === id);
+    if (target && !isWritableDateKey(target.date, dateContext)) {
+      setFeedback(getDateLockReason(target.date, dateContext));
       return;
     }
 
     setBusy(true);
-    setStatus("Удаление");
+    setFeedback("Удаляю");
 
     try {
       const response = await fetch(`/api/events?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ownerPassword }),
+        body: JSON.stringify({ ownerPassword: deletePassword }),
       });
       const payload = await response.json();
 
@@ -250,9 +355,11 @@ export default function CalendarPage() {
 
       setEvents(sortEvents(payload.events));
       if (editingId === id) resetForm();
-      setStatus("Удалено");
+      setDeletingId(null);
+      setDeletePassword("");
+      setFeedback("Удалено");
     } catch (error) {
-      setStatus(error.message);
+      setFeedback(error.message);
     } finally {
       setBusy(false);
     }
@@ -262,249 +369,303 @@ export default function CalendarPage() {
     <>
       <div className="cosmic-backdrop" aria-hidden="true" />
       <main className={`app-shell${detailsOpen ? "" : " details-collapsed"}`}>
-      <section className="calendar-panel" aria-label="Календарь">
-        <header className="topbar">
-          <div className="brand">
-            <span className="brand-icon" aria-hidden="true">
-              <CalendarDays size={22} strokeWidth={2.2} />
-            </span>
-            <div>
-              <h1>Орбита дел</h1>
-              <p>{status}</p>
+        <section
+          className="calendar-panel"
+          aria-label="Календарь"
+          onTouchStart={(event) => {
+            swipeStartX.current = event.touches[0]?.clientX ?? null;
+          }}
+          onTouchEnd={(event) => {
+            handleSwipeEnd(event.changedTouches[0]?.clientX ?? 0);
+          }}
+        >
+          <header className="topbar">
+            <div className="brand">
+              <span className="brand-icon" aria-hidden="true">
+                <CalendarDays size={22} strokeWidth={2.2} />
+              </span>
+              <div>
+                <h1>Орбита дел</h1>
+                <p>Семейный календарь</p>
+              </div>
             </div>
-          </div>
+          </header>
 
-          <div className="month-controls" aria-label="Навигация по месяцам">
-            <button className="icon-button" type="button" onClick={() => moveMonth(-1)} aria-label="Предыдущий месяц">
-              <ChevronLeft size={20} />
-            </button>
-            <button className="today-button" type="button" onClick={jumpToday}>
-              Сегодня
-            </button>
-            <button className="icon-button" type="button" onClick={() => moveMonth(1)} aria-label="Следующий месяц">
-              <ChevronRight size={20} />
-            </button>
-          </div>
-        </header>
-
-        <div className="month-title-row">
-          <h2>{formatMonthLabel(viewDate)}</h2>
-          <div className="month-actions">
-            <button
-              className="icon-button subtle"
-              type="button"
-              onClick={() => loadEvents().catch((error) => setStatus(error.message))}
-              aria-label="Обновить"
-              title="Обновить"
-            >
-              <RefreshCw size={18} />
-            </button>
-            <button
-              className={`icon-button subtle${detailsOpen ? " active-control" : ""}`}
-              type="button"
-              onClick={() => setDetailsOpen((current) => !current)}
-              aria-label={detailsOpen ? "Скрыть детали дня" : "Показать детали дня"}
-              title={detailsOpen ? "Скрыть детали дня" : "Показать детали дня"}
-            >
-              {detailsOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
-            </button>
-          </div>
-        </div>
-
-        <div className="weekday-grid" aria-hidden="true">
-          {WEEKDAYS.map((day) => (
-            <span key={day}>{day}</span>
-          ))}
-        </div>
-
-        <div className="month-grid">
-          {monthCells.map((cell) => {
-            const dayEvents = eventsByDate[cell.key] || [];
-            const active = detailsOpen && selectedDate === cell.key;
-            const muted = !isSameMonth(cell.date, viewDate);
-            const writable = isWritableDateKey(cell.key, dateContext);
-            const canOpen = writable || dayEvents.length > 0;
-
-            return (
-              <button
-                className={`day-cell${active ? " active" : ""}${muted ? " muted" : ""}${
-                  cell.key === todayKey ? " today" : ""
-                }${!writable ? " closed" : ""}${!canOpen ? " inactive" : ""}`}
-                disabled={!canOpen}
-                key={cell.key}
-                type="button"
-                onClick={() => selectDate(cell.key)}
-              >
-                <span className="day-number">{cell.date.getDate()}</span>
-                <span className="day-events">
-                  {dayEvents.slice(0, 2).map((event) => (
-                    <span className="event-chip" key={event.id}>
-                      <span>{event.time || "весь день"}</span>
-                      {getPersonName(event.ownerId)} · {event.title}
-                    </span>
-                  ))}
-                  {dayEvents.length > 2 ? <span className="more-chip">+{dayEvents.length - 2}</span> : null}
-                </span>
+          <div className="month-title-row">
+            <h2>{formatMonthLabel(viewDate)}</h2>
+            <div className="month-controls" aria-label="Навигация по месяцам">
+              <button className="icon-button" type="button" onClick={() => moveMonth(-1)} aria-label="Предыдущий месяц">
+                <ChevronLeft size={20} />
               </button>
-            );
-          })}
-        </div>
-      </section>
-
-      {detailsOpen ? (
-      <aside className="details-panel" aria-label="Дела на выбранный день">
-        <div className="details-header">
-          <div>
-            <p>Выбранный день</p>
-            <h2>{formatDisplayDate(selectedDate)}</h2>
-          </div>
-          <div className="details-header-actions">
-            <span className="count-badge">{selectedEvents.length}</span>
-            <button className="icon-button subtle" type="button" onClick={closeDetails} aria-label="Скрыть детали дня" title="Скрыть детали дня">
-              <PanelRightClose size={18} />
-            </button>
-          </div>
-        </div>
-
-        <div className="event-list">
-          {selectedEvents.length === 0 ? (
-            <p className="empty-state">{selectedWritable ? "Нет дел" : "День закрыт"}</p>
-          ) : null}
-          {selectedEvents.map((event) => {
-            const eventWritable = isWritableDateKey(event.date, dateContext);
-
-            return (
-              <article className="event-row" key={event.id}>
-                <div className="event-time">{event.time || "весь день"}</div>
-                <div className="event-content">
-                  <span className={`owner-pill owner-${event.ownerId || DEFAULT_OWNER_ID}`}>
-                    {getPersonName(event.ownerId)}
-                  </span>
-                  <h3>{event.title}</h3>
-                  {event.note ? <p>{event.note}</p> : null}
-                </div>
-                {eventWritable ? (
-                  <div className="row-actions">
-                    <button className="icon-button subtle" type="button" onClick={() => startEdit(event)} aria-label="Редактировать">
-                      <Pencil size={17} />
-                    </button>
-                    <button className="icon-button danger" type="button" onClick={() => deleteEvent(event.id)} aria-label="Удалить">
-                      <Trash2 size={17} />
-                    </button>
-                  </div>
-                ) : null}
-              </article>
-            );
-          })}
-        </div>
-
-        {selectedWritable ? (
-          <form className="event-form" onSubmit={saveEvent}>
-            <div className="form-heading">
-              <h2>{editingId ? "Редактировать" : "Добавить"}</h2>
-              {editingId ? (
-                <button className="icon-button subtle" type="button" onClick={() => resetForm()} aria-label="Отменить">
-                  <X size={18} />
-                </button>
-              ) : null}
+              <button className="today-button" type="button" onClick={jumpToday}>
+                Сегодня
+              </button>
+              <button className="icon-button" type="button" onClick={() => moveMonth(1)} aria-label="Следующий месяц">
+                <ChevronRight size={20} />
+              </button>
             </div>
+            <div className="month-actions">
+              <button
+                className="icon-button subtle"
+                type="button"
+                onClick={() => loadEvents().catch((error) => setFeedback(error.message))}
+                aria-label="Синхронизировать"
+                title="Синхронизировать"
+              >
+                <RefreshCw size={18} />
+              </button>
+              <button
+                className={`icon-button subtle${detailsOpen ? " active-control" : ""}`}
+                type="button"
+                onClick={() => setDetailsOpen((current) => !current)}
+                aria-label={detailsOpen ? "Скрыть детали дня" : "Показать детали дня"}
+                title={detailsOpen ? "Скрыть детали дня" : "Показать детали дня"}
+              >
+                {detailsOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+              </button>
+            </div>
+          </div>
 
-            <label>
-              Дата
-              <input
-                type="date"
-                min={firstWritableDate}
-                value={form.date}
-                onChange={(event) => {
-                  const nextDateKey = event.target.value;
-                  const nextDate = keyToDate(nextDateKey);
+          {feedback ? <div className="feedback-line">{feedback}</div> : null}
 
-                  setForm((current) => ({ ...current, date: nextDateKey }));
-                  setSelectedDate(nextDateKey);
-                  setViewDate((current) =>
-                    isSameMonth(nextDate, current)
-                      ? current
-                      : new Date(nextDate.getFullYear(), nextDate.getMonth(), 1),
-                  );
-                }}
-                required
-              />
-            </label>
+          <button className="calendar-side-nav previous" type="button" onClick={() => moveMonth(-1)} aria-label="Предыдущий месяц">
+            <ChevronLeft size={22} />
+          </button>
+          <button className="calendar-side-nav next" type="button" onClick={() => moveMonth(1)} aria-label="Следующий месяц">
+            <ChevronRight size={22} />
+          </button>
 
-            <div className="owner-field">
-              <span>Человек</span>
-              <div className="owner-picker" role="radiogroup" aria-label="Человек">
-                {PEOPLE.map((person) => (
-                  <button
-                    className={`owner-option owner-${person.id}${form.ownerId === person.id ? " selected" : ""}`}
-                    disabled={Boolean(editingId)}
-                    key={person.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={form.ownerId === person.id}
-                    onClick={() => setForm((current) => ({ ...current, ownerId: person.id, ownerPassword: "" }))}
-                  >
-                    {person.name}
-                  </button>
-                ))}
+          <div className="weekday-grid" aria-hidden="true">
+            {WEEKDAYS.map((day) => (
+              <span key={day}>{day}</span>
+            ))}
+          </div>
+
+          <div className="month-grid">
+            {monthCells.map((cell) => {
+              const dayEvents = eventsByDate[cell.key] || [];
+              const active = detailsOpen && selectedDate === cell.key;
+              const muted = !isSameMonth(cell.date, viewDate);
+              const writable = isWritableDateKey(cell.key, dateContext);
+              const canOpen = writable || dayEvents.length > 0;
+
+              return (
+                <button
+                  className={`day-cell${active ? " active" : ""}${muted ? " muted" : ""}${
+                    cell.key === todayKey ? " today" : ""
+                  }${!writable ? " closed" : ""}${!canOpen ? " inactive" : ""}`}
+                  disabled={!canOpen}
+                  key={cell.key}
+                  type="button"
+                  onClick={() => selectDate(cell.key)}
+                >
+                  <span className="day-number">{cell.date.getDate()}</span>
+                  <span className="day-events">
+                    {dayEvents.slice(0, 2).map((event) => (
+                      <span className="event-chip" key={event.id}>
+                        <span>{event.time || "весь день"}</span>
+                        {getPersonName(event.ownerId)} · {event.title}
+                      </span>
+                    ))}
+                    {dayEvents.length > 2 ? <span className="more-chip">+{dayEvents.length - 2}</span> : null}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        {detailsOpen ? (
+          <aside className="details-panel" aria-label="Дела на выбранный день">
+            <div className="details-header">
+              <div>
+                <p>Выбранный день</p>
+                <h2>{formatDisplayDate(selectedDate)}</h2>
+              </div>
+              <div className="details-header-actions">
+                <span className="count-badge">{selectedEvents.length}</span>
+                <button className="icon-button subtle" type="button" onClick={closeDetails} aria-label="Скрыть детали дня" title="Скрыть детали дня">
+                  <PanelRightClose size={18} />
+                </button>
               </div>
             </div>
 
-            <label>
-              Пароль
-              <input
-                type="password"
-                value={form.ownerPassword}
-                onChange={(event) => setForm((current) => ({ ...current, ownerPassword: event.target.value }))}
-                minLength={4}
-                required
-                placeholder={ownerPasswordStatus[form.ownerId] ? "Пароль человека" : "Придумайте первый пароль"}
-              />
-            </label>
+            <div className="event-list">
+              {selectedEvents.length === 0 ? (
+                <p className="empty-state">{selectedWritable ? "Нет дел" : "День закрыт"}</p>
+              ) : null}
+              {selectedEvents.map((event) => {
+                const eventWritable = isWritableDateKey(event.date, dateContext);
 
-            <label>
-              Время
-              <input
-                type="time"
-                value={form.time}
-                onChange={(event) => setForm((current) => ({ ...current, time: event.target.value }))}
-              />
-            </label>
+                return (
+                  <article className="event-row" key={event.id}>
+                    <div className="event-time">{event.time || "весь день"}</div>
+                    <div className="event-content">
+                      <span className={`owner-pill owner-${event.ownerId || DEFAULT_OWNER_ID}`}>
+                        {getPersonName(event.ownerId)}
+                      </span>
+                      <h3>{event.title}</h3>
+                      {event.note ? <p>{event.note}</p> : null}
 
-            <label>
-              Дело
-              <input
-                type="text"
-                value={form.title}
-                onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-                maxLength={120}
-                required
-              />
-            </label>
+                      {deletingId === event.id ? (
+                        <form className="delete-form" onSubmit={(formEvent) => deleteEvent(formEvent, event.id)}>
+                          <label>
+                            Пароль для удаления
+                            <input
+                              type="password"
+                              value={deletePassword}
+                              onChange={(inputEvent) => setDeletePassword(inputEvent.target.value)}
+                              minLength={4}
+                              required
+                            />
+                          </label>
+                          <div className="delete-actions">
+                            <button className="delete-confirm-button" type="submit" disabled={busy}>
+                              Удалить
+                            </button>
+                            <button
+                              className="delete-cancel-button"
+                              type="button"
+                              onClick={() => {
+                                setDeletingId(null);
+                                setDeletePassword("");
+                              }}
+                            >
+                              Отмена
+                            </button>
+                          </div>
+                        </form>
+                      ) : null}
+                    </div>
+                    {eventWritable ? (
+                      <div className="row-actions">
+                        <button className="icon-button subtle" type="button" onClick={() => startEdit(event)} aria-label="Редактировать">
+                          <Pencil size={17} />
+                        </button>
+                        <button
+                          className="icon-button danger"
+                          type="button"
+                          onClick={() => {
+                            setDeletingId(event.id);
+                            setDeletePassword("");
+                          }}
+                          aria-label="Удалить"
+                        >
+                          <Trash2 size={17} />
+                        </button>
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
 
-            <label>
-              Заметка
-              <textarea
-                value={form.note}
-                onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))}
-                maxLength={300}
-                rows={3}
-              />
-            </label>
+            {selectedWritable ? (
+              <form className="event-form" onSubmit={saveEvent}>
+                <div className="form-heading">
+                  <h2>{editingId ? "Редактировать" : "Добавить"}</h2>
+                  {editingId ? (
+                    <button className="icon-button subtle" type="button" onClick={() => resetForm()} aria-label="Отменить">
+                      <X size={18} />
+                    </button>
+                  ) : null}
+                </div>
 
-            <button className="save-button" type="submit" disabled={busy}>
-              {editingId ? <Check size={18} /> : <Plus size={18} />}
-              {editingId ? "Сохранить" : "Добавить"}
-            </button>
-          </form>
-        ) : (
-          <div className="readonly-note">
-            <h2>Только просмотр</h2>
-            <p>{selectedLockReason}</p>
-          </div>
-        )}
-      </aside>
-      ) : null}
+                <label>
+                  Дата
+                  <input
+                    type="date"
+                    min={firstWritableDate}
+                    value={form.date}
+                    onChange={(event) => {
+                      const nextDateKey = event.target.value;
+                      const nextDate = keyToDate(nextDateKey);
+
+                      setForm((current) => ({ ...current, date: nextDateKey }));
+                      setSelectedDate(nextDateKey);
+                      setViewDate((current) =>
+                        isSameMonth(nextDate, current)
+                          ? current
+                          : new Date(nextDate.getFullYear(), nextDate.getMonth(), 1),
+                      );
+                    }}
+                    required
+                  />
+                </label>
+
+                <div className="owner-field">
+                  <span>Человек</span>
+                  <div className="owner-picker" role="radiogroup" aria-label="Человек">
+                    {PEOPLE.map((person) => (
+                      <button
+                        className={`owner-option owner-${person.id}${form.ownerId === person.id ? " selected" : ""}`}
+                        disabled={Boolean(editingId)}
+                        key={person.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={form.ownerId === person.id}
+                        onClick={() => setForm((current) => ({ ...current, ownerId: person.id, ownerPassword: "" }))}
+                      >
+                        {person.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <label>
+                  Пароль
+                  <input
+                    type="password"
+                    value={form.ownerPassword}
+                    onChange={(event) => setForm((current) => ({ ...current, ownerPassword: event.target.value }))}
+                    minLength={4}
+                    required
+                    placeholder={ownerPasswordStatus[form.ownerId] ? "Пароль человека" : "Придумайте первый пароль"}
+                  />
+                </label>
+
+                <div className="form-field">
+                  <span>Время</span>
+                  <TimePicker
+                    value={form.time}
+                    onChange={(time) => setForm((current) => ({ ...current, time }))}
+                  />
+                </div>
+
+                <label>
+                  Дело
+                  <input
+                    type="text"
+                    value={form.title}
+                    onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+                    maxLength={120}
+                    required
+                  />
+                </label>
+
+                <label>
+                  Заметка
+                  <textarea
+                    value={form.note}
+                    onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))}
+                    maxLength={300}
+                    rows={3}
+                  />
+                </label>
+
+                <button className="save-button" type="submit" disabled={busy}>
+                  {editingId ? <Check size={18} /> : <Plus size={18} />}
+                  {editingId ? "Сохранить" : "Добавить"}
+                </button>
+              </form>
+            ) : (
+              <div className="readonly-note">
+                <h2>Только просмотр</h2>
+                <p>{selectedLockReason}</p>
+              </div>
+            )}
+          </aside>
+        ) : null}
       </main>
     </>
   );

@@ -1,11 +1,32 @@
-import { buildTelegramMessage, getBerlinDateKey } from "../../../../lib/calendar.js";
+import {
+  buildPersonalTelegramMessage,
+  buildTelegramMessage,
+  getBerlinDateKey,
+} from "../../../../lib/calendar.js";
 import { hasDigestRun, markDigestRun, readEvents } from "../../../../lib/storage.js";
 
 export const dynamic = "force-dynamic";
 
-async function sendTelegramMessage(text) {
+const PERSONAL_RECIPIENTS = [
+  {
+    id: "anton",
+    envName: "TELEGRAM_CHAT_ID_ANTON",
+    ownerIds: ["anton", "alexey"],
+  },
+  {
+    id: "elena",
+    envName: "TELEGRAM_CHAT_ID_ELENA",
+    ownerIds: ["elena", "alexey"],
+  },
+  {
+    id: "kristina",
+    envName: "TELEGRAM_CHAT_ID_KRISTINA",
+    ownerIds: ["kristina"],
+  },
+];
+
+async function sendTelegramMessage(text, chatId = process.env.TELEGRAM_CHAT_ID) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
 
   if (!token) {
     throw new Error("TELEGRAM_BOT_TOKEN is missing");
@@ -29,6 +50,34 @@ async function sendTelegramMessage(text) {
   if (!response.ok || payload.ok !== true) {
     throw new Error(`Telegram sendMessage failed with status ${response.status}`);
   }
+}
+
+async function sendPersonalTelegramMessages(events, now, { test = false } = {}) {
+  const results = [];
+
+  for (const recipient of PERSONAL_RECIPIENTS) {
+    const chatId = process.env[recipient.envName];
+
+    if (!chatId) {
+      results.push({ id: recipient.id, sent: false, skipped: true });
+      continue;
+    }
+
+    try {
+      const text = buildPersonalTelegramMessage(recipient.ownerIds, events, now);
+      await sendTelegramMessage(test ? `Тест календаря\n\n${text}` : text, chatId);
+      results.push({ id: recipient.id, sent: true, skipped: false });
+    } catch (error) {
+      results.push({
+        id: recipient.id,
+        sent: false,
+        skipped: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
+  return results;
 }
 
 export async function GET(request) {
@@ -70,11 +119,17 @@ export async function GET(request) {
         date: today,
         count: todaysEvents.length,
         message,
+        personalPreviews: PERSONAL_RECIPIENTS.map((recipient) => ({
+          id: recipient.id,
+          configured: Boolean(process.env[recipient.envName]),
+          message: buildPersonalTelegramMessage(recipient.ownerIds, todaysEvents, now),
+        })),
       });
     }
 
     if (testSend) {
       await sendTelegramMessage(`Тест календаря\n\n${message}`);
+      const personalResults = await sendPersonalTelegramMessages(todaysEvents, now, { test: true });
 
       return Response.json({
         ok: true,
@@ -83,10 +138,12 @@ export async function GET(request) {
         lockedToday: false,
         date: today,
         count: todaysEvents.length,
+        personalResults,
       });
     }
 
     await sendTelegramMessage(message);
+    const personalResults = await sendPersonalTelegramMessages(todaysEvents, now);
     await markDigestRun(today);
 
     return Response.json({
@@ -94,6 +151,7 @@ export async function GET(request) {
       sent: true,
       date: today,
       count: todaysEvents.length,
+      personalResults,
     });
   } catch (error) {
     return Response.json(

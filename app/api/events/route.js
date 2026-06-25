@@ -4,8 +4,10 @@ import {
   PEOPLE,
   getBerlinDateKey,
   getDateLockReason,
+  isTodayAfterDigestTime,
   isValidOwnerId,
   isWritableDateKey,
+  normalizeOwnerId,
 } from "../../../lib/calendar.js";
 import {
   hasDigestRun,
@@ -46,7 +48,7 @@ function verifyPassword(password, record) {
 function cleanEvent(input, id) {
   const date = typeof input.date === "string" ? input.date : "";
   const time = typeof input.time === "string" ? input.time : "";
-  const ownerId = typeof input.ownerId === "string" ? input.ownerId : DEFAULT_OWNER_ID;
+  const ownerId = normalizeOwnerId(typeof input.ownerId === "string" ? input.ownerId : DEFAULT_OWNER_ID);
   const title = typeof input.title === "string" ? input.title.trim() : "";
   const note = typeof input.note === "string" ? input.note.trim() : "";
 
@@ -79,8 +81,9 @@ function cleanEvent(input, id) {
 async function getWriteContext() {
   const todayKey = getBerlinDateKey();
   const todayLocked = await hasDigestRun(todayKey);
+  const todayAfterDigest = isTodayAfterDigestTime();
 
-  return { todayKey, todayLocked };
+  return { todayKey, todayLocked, todayAfterDigest };
 }
 
 function assertWritableDate(dateKey, context) {
@@ -119,6 +122,7 @@ async function authorizeOwner(ownerId, password, { allowCreate = false } = {}) {
 
 export async function GET() {
   const todayKey = getBerlinDateKey();
+  const todayAfterDigest = isTodayAfterDigestTime();
   const [events, todayLocked, ownerPasswords] = await Promise.all([
     readEvents(),
     hasDigestRun(todayKey),
@@ -128,7 +132,15 @@ export async function GET() {
     PEOPLE.map((person) => [person.id, Boolean(ownerPasswords[person.id])]),
   );
 
-  return Response.json({ ok: true, events, todayKey, todayLocked, people: PEOPLE, ownerPasswordStatus });
+  return Response.json({
+    ok: true,
+    events,
+    todayKey,
+    todayLocked,
+    todayAfterDigest,
+    people: PEOPLE,
+    ownerPasswordStatus,
+  });
 }
 
 export async function POST(request) {
