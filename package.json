@@ -1,0 +1,19 @@
+{
+  "name": "daily-calendar-digest",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "check": "node --check app/api/cron/morning/route.js && node --check app/api/events/route.js"
+  },
+  "dependencies": {
+    "lucide-react": "latest",
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "overrides": {
+    "postcss": "^8.5.10"
+  }
+}
