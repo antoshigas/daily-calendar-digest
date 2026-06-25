@@ -798,7 +798,7 @@ h3 {
   top: 50%;
   left: 50%;
   display: grid;
-  width: min(338px, calc(100vw - 24px));
+  width: min(346px, calc(100vw - 24px));
   gap: 10px;
   padding: 12px;
   border: 1px solid var(--line-strong);
@@ -829,6 +829,47 @@ h3 {
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 1.1rem;
   font-weight: 700;
+}
+
+.period-toggle {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  margin-top: 6px;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.clock-mode-tabs {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  margin-top: 7px;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.clock-mode-tab,
+.period-button {
+  min-height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 0 8px;
+}
+
+.clock-mode-tab.selected,
+.period-button.selected {
+  background: rgba(101, 243, 208, 0.18);
+  color: var(--accent-strong);
 }
 
 .clock-display-part {
@@ -862,13 +903,18 @@ h3 {
   border-radius: 50%;
   background:
     radial-gradient(circle at center, rgba(255, 207, 109, 0.14) 0 21%, transparent 22%),
-    radial-gradient(circle at center, transparent 0 46%, rgba(255, 255, 255, 0.055) 47% 48%, transparent 49%),
     radial-gradient(circle at center, transparent 0 72%, rgba(255, 255, 255, 0.06) 73% 74%, transparent 75%),
     rgba(12, 18, 30, 0.34);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
 }
 
-.clock-face::before,
-.clock-face::after {
+.clock-face:active {
+  cursor: grabbing;
+}
+
+.clock-face::before {
   position: absolute;
   inset: 22px;
   content: "";
@@ -877,14 +923,11 @@ h3 {
   pointer-events: none;
 }
 
-.clock-face::after {
-  inset: 62px;
-}
-
 .clock-center {
   position: absolute;
   top: 50%;
   left: 50%;
+  z-index: 3;
   display: grid;
   place-items: center;
   width: 92px;
@@ -904,20 +947,53 @@ h3 {
   font-size: 1rem;
 }
 
+.clock-hand {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 1;
+  width: 3px;
+  height: var(--hand);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 207, 109, 0.98), rgba(101, 243, 208, 0.72));
+  box-shadow: 0 0 18px rgba(255, 207, 109, 0.2);
+  pointer-events: none;
+  transform: translate(-50%, -100%) rotate(var(--angle));
+  transform-origin: 50% 100%;
+}
+
+.clock-hand::before {
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  width: 19px;
+  height: 19px;
+  content: "";
+  border: 2px solid rgba(255, 255, 255, 0.74);
+  border-radius: 50%;
+  background: var(--fresh);
+  box-shadow: 0 0 20px rgba(255, 207, 109, 0.32);
+  transform: translateX(-50%);
+}
+
 .clock-option {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 36px;
-  height: 36px;
-  margin: -18px 0 0 -18px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  margin: -21px 0 0 -21px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.085);
   color: var(--text);
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 0.68rem;
+  font-size: 0.78rem;
   font-weight: 700;
+  pointer-events: none;
   transform: translate(var(--x), var(--y));
 }
 
@@ -927,12 +1003,44 @@ h3 {
   margin: -21px 0 0 -21px;
 }
 
+.clock-option.hour {
+  font-size: 0.88rem;
+}
+
 .clock-option:hover,
 .clock-option.selected {
   border-color: rgba(255, 207, 109, 0.72);
   background: rgba(255, 207, 109, 0.24);
   color: #fff3cf;
   box-shadow: 0 0 18px rgba(255, 207, 109, 0.2);
+}
+
+.minute-exact {
+  display: grid;
+  grid-template-columns: 1fr 76px;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.minute-exact input {
+  min-width: 0;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-weight: 800;
+  padding: 0 9px;
+  outline: none;
+}
+
+.minute-exact input:focus {
+  border-color: rgba(101, 243, 208, 0.7);
+  box-shadow: 0 0 0 3px rgba(101, 243, 208, 0.16);
 }
 
 .clear-time-button,

@@ -31,8 +31,8 @@ import {
 } from "../lib/calendar.js";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
-const HOURS = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, "0"));
-const MINUTES = Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, "0"));
+const CLOCK_HOURS = Array.from({ length: 12 }, (_, index) => (index === 0 ? 12 : index));
+const QUICK_MINUTES = Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, "0"));
 const AUTO_REFRESH_MS = 6000;
 const SWIPE_THRESHOLD = 56;
 
@@ -84,18 +84,57 @@ function clockPoint(value, total, radius) {
   };
 }
 
+function clockHandStyle(value, total, radius) {
+  return {
+    "--angle": `${(Number(value) / total) * 360}deg`,
+    "--hand": `${radius}px`,
+  };
+}
+
+function getDayPart(hour) {
+  return Number(hour) < 12 ? "am" : "pm";
+}
+
+function getClockHour(hour) {
+  const numericHour = Number(hour);
+  const clockHour = numericHour % 12;
+  return clockHour === 0 ? 12 : clockHour;
+}
+
+function toFullHour(clockHour, dayPart) {
+  const numericHour = Number(clockHour);
+  if (dayPart === "am") {
+    return String(numericHour === 12 ? 0 : numericHour).padStart(2, "0");
+  }
+
+  return String(numericHour === 12 ? 12 : numericHour + 12).padStart(2, "0");
+}
+
+function normalizeMinute(value) {
+  if (value === "") return "00";
+
+  const numericValue = Number(value);
+  if (Number.isNaN(numericValue)) return "00";
+
+  return String(Math.min(59, Math.max(0, numericValue))).padStart(2, "0");
+}
+
 function TimePicker({ value, onChange }) {
   const [open, setOpen] = useState(false);
   const [draftHour, setDraftHour] = useState(value ? value.slice(0, 2) : "09");
   const [draftMinute, setDraftMinute] = useState(value ? value.slice(3, 5) : "00");
+  const [dayPart, setDayPart] = useState(value ? getDayPart(value.slice(0, 2)) : "am");
   const [mode, setMode] = useState("hour");
   const pickerRef = useRef(null);
+  const clockFaceRef = useRef(null);
+  const draggingRef = useRef(false);
   const label = value || "весь день";
 
   useEffect(() => {
     if (!value) return;
     setDraftHour(value.slice(0, 2));
     setDraftMinute(value.slice(3, 5));
+    setDayPart(getDayPart(value.slice(0, 2)));
   }, [value]);
 
   useEffect(() => {
@@ -110,15 +149,67 @@ function TimePicker({ value, onChange }) {
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [open]);
 
-  function pickHour(hour) {
-    setDraftHour(hour);
+  function setClockHour(clockHour) {
+    setDraftHour(toFullHour(clockHour, dayPart));
+  }
+
+  function pickHour(clockHour) {
+    setClockHour(clockHour);
     setMode("minute");
   }
 
+  function pickDayPart(nextDayPart) {
+    setDayPart(nextDayPart);
+    setDraftHour(toFullHour(getClockHour(draftHour), nextDayPart));
+  }
+
   function commitTime(minute = draftMinute) {
-    onChange(`${draftHour}:${minute}`);
+    onChange(`${draftHour}:${normalizeMinute(minute)}`);
     setOpen(false);
   }
+
+  function pickFromPointer(event, targetMode = mode) {
+    const rect = clockFaceRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const dx = event.clientX - centerX;
+    const dy = event.clientY - centerY;
+    let angle = Math.atan2(dy, dx) + Math.PI / 2;
+    if (angle < 0) angle += Math.PI * 2;
+
+    if (targetMode === "hour") {
+      const value = Math.round((angle / (Math.PI * 2)) * 12) % 12;
+      setClockHour(value === 0 ? 12 : value);
+      return;
+    }
+
+    const minute = Math.round((angle / (Math.PI * 2)) * 60) % 60;
+    setDraftMinute(String(minute).padStart(2, "0"));
+  }
+
+  function handleClockPointerDown(event) {
+    draggingRef.current = true;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    pickFromPointer(event);
+  }
+
+  function handleClockPointerMove(event) {
+    if (!draggingRef.current) return;
+    pickFromPointer(event);
+  }
+
+  function handleClockPointerUp(event) {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    pickFromPointer(event);
+    if (mode === "hour") setMode("minute");
+  }
+
+  const handValue = mode === "hour" ? getClockHour(draftHour) % 12 : Number(draftMinute);
+  const handStyle = clockHandStyle(handValue, mode === "hour" ? 12 : 60, 104);
 
   return (
     <div className="time-picker" ref={pickerRef}>
@@ -137,29 +228,73 @@ function TimePicker({ value, onChange }) {
       {open ? (
         <div className="time-popover" role="dialog" aria-label="Выбор времени">
           <div className="time-popover-head">
-            <div className="clock-display" aria-label="Выбранное время">
-              <button
-                className={`clock-display-part${mode === "hour" ? " active" : ""}`}
-                type="button"
-                onClick={() => setMode("hour")}
-              >
-                {draftHour}
-              </button>
-              <span>:</span>
-              <button
-                className={`clock-display-part${mode === "minute" ? " active" : ""}`}
-                type="button"
-                onClick={() => setMode("minute")}
-              >
-                {draftMinute}
-              </button>
+            <div>
+              <div className="clock-display" aria-label="Выбранное время">
+                <button
+                  className={`clock-display-part${mode === "hour" ? " active" : ""}`}
+                  type="button"
+                  onClick={() => setMode("hour")}
+                >
+                  {draftHour}
+                </button>
+                <span>:</span>
+                <button
+                  className={`clock-display-part${mode === "minute" ? " active" : ""}`}
+                  type="button"
+                  onClick={() => setMode("minute")}
+                >
+                  {draftMinute}
+                </button>
+              </div>
+              <div className="clock-mode-tabs" role="group" aria-label="Режим выбора времени">
+                <button
+                  className={`clock-mode-tab${mode === "hour" ? " selected" : ""}`}
+                  type="button"
+                  onClick={() => setMode("hour")}
+                >
+                  Часы
+                </button>
+                <button
+                  className={`clock-mode-tab${mode === "minute" ? " selected" : ""}`}
+                  type="button"
+                  onClick={() => setMode("minute")}
+                >
+                  Минуты
+                </button>
+              </div>
+              <div className="period-toggle" role="group" aria-label="Половина дня">
+                <button
+                  className={`period-button${dayPart === "am" ? " selected" : ""}`}
+                  type="button"
+                  onClick={() => pickDayPart("am")}
+                >
+                  00-11
+                </button>
+                <button
+                  className={`period-button${dayPart === "pm" ? " selected" : ""}`}
+                  type="button"
+                  onClick={() => pickDayPart("pm")}
+                >
+                  12-23
+                </button>
+              </div>
             </div>
             <button className="icon-button subtle compact" type="button" onClick={() => setOpen(false)} aria-label="Закрыть">
               <X size={16} />
             </button>
           </div>
 
-          <div className={`clock-face ${mode}`} aria-label={mode === "hour" ? "Часы" : "Минуты"}>
+          <div
+            className={`clock-face ${mode}`}
+            ref={clockFaceRef}
+            role="application"
+            aria-label={mode === "hour" ? "Круговой выбор часа" : "Круговой выбор минут"}
+            onPointerDown={handleClockPointerDown}
+            onPointerMove={handleClockPointerMove}
+            onPointerUp={handleClockPointerUp}
+            onPointerCancel={handleClockPointerUp}
+          >
+            <div className="clock-hand" style={handStyle} aria-hidden="true" />
             <div className="clock-center">
               <span>{mode === "hour" ? "час" : "мин"}</span>
               <strong>
@@ -167,31 +302,37 @@ function TimePicker({ value, onChange }) {
               </strong>
             </div>
 
-            {(mode === "hour" ? HOURS : MINUTES).map((item) => {
-              const radius = mode === "hour" ? (Number(item) % 2 === 0 ? 105 : 72) : 103;
-              const style = clockPoint(item, mode === "hour" ? 24 : 60, radius);
-              const selected = mode === "hour" ? draftHour === item : draftMinute === item;
+            {(mode === "hour" ? CLOCK_HOURS : QUICK_MINUTES).map((item) => {
+              const radius = 104;
+              const clockValue = mode === "hour" ? item % 12 : Number(item);
+              const style = clockPoint(clockValue, mode === "hour" ? 12 : 60, radius);
+              const selected = mode === "hour" ? getClockHour(draftHour) === item : draftMinute === item;
 
               return (
-                <button
-                  className={`clock-option${selected ? " selected" : ""}${mode === "minute" ? " minute" : ""}`}
+                <span
+                  className={`clock-option${selected ? " selected" : ""}${mode === "hour" ? " hour" : " minute"}`}
                   key={item}
-                  type="button"
                   style={style}
-                  onClick={() => {
-                    if (mode === "hour") {
-                      pickHour(item);
-                      return;
-                    }
-                    setDraftMinute(item);
-                    commitTime(item);
-                  }}
                 >
                   {item}
-                </button>
+                </span>
               );
             })}
           </div>
+
+          {mode === "minute" ? (
+            <label className="minute-exact">
+              Точная минута
+              <input
+                type="number"
+                min="0"
+                max="59"
+                inputMode="numeric"
+                value={Number(draftMinute)}
+                onChange={(event) => setDraftMinute(normalizeMinute(event.target.value))}
+              />
+            </label>
+          ) : null}
 
           <div className="time-popover-actions">
             <button
@@ -311,20 +452,8 @@ export default function CalendarPage() {
     }, {});
   }, [events]);
   const selectedEvents = eventsByDate[selectedDate] || [];
-  const todayEvents = eventsByDate[todayKey] || [];
   const selectedWritable = isWritableDateKey(selectedDate, dateContext);
   const selectedLockReason = getDateLockReason(selectedDate, dateContext);
-
-  useEffect(() => {
-    if (!detailsOpen) return;
-    if (selectedWritable || selectedEvents.length > 0) return;
-
-    setSelectedDate(firstWritableDate);
-    setForm(emptyForm(firstWritableDate));
-
-    const nextViewDate = keyToDate(firstWritableDate);
-    setViewDate(new Date(nextViewDate.getFullYear(), nextViewDate.getMonth(), 1));
-  }, [detailsOpen, firstWritableDate, selectedEvents.length, selectedWritable]);
 
   useEffect(() => {
     if (!editingId) {
@@ -368,8 +497,7 @@ export default function CalendarPage() {
   }
 
   function jumpToday() {
-    const canOpenToday = isWritableDateKey(todayKey, dateContext) || todayEvents.length > 0;
-    selectDate(canOpenToday ? todayKey : firstWritableDate, { toggleSame: false });
+    selectDate(todayKey, { toggleSame: false });
     setEditingId(null);
   }
 
@@ -572,14 +700,12 @@ export default function CalendarPage() {
               const active = detailsOpen && selectedDate === cell.key;
               const muted = !isSameMonth(cell.date, viewDate);
               const writable = isWritableDateKey(cell.key, dateContext);
-              const canOpen = writable || dayEvents.length > 0;
 
               return (
                 <button
                   className={`day-cell${active ? " active" : ""}${muted ? " muted" : ""}${
                     cell.key === todayKey ? " today" : ""
-                  }${!writable ? " closed" : ""}${!canOpen ? " inactive" : ""}`}
-                  disabled={!canOpen}
+                  }${!writable ? " closed" : ""}`}
                   key={cell.key}
                   type="button"
                   onClick={() => selectDate(cell.key)}
@@ -617,7 +743,7 @@ export default function CalendarPage() {
 
             <div className="event-list">
               {selectedEvents.length === 0 ? (
-                <p className="empty-state">{selectedWritable ? "Нет дел" : "День закрыт"}</p>
+                <p className="empty-state">Дел нет</p>
               ) : null}
               {selectedEvents.map((event) => {
                 const eventWritable = isWritableDateKey(event.date, dateContext);
