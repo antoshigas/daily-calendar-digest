@@ -17,6 +17,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_OWNER_ID,
+  NO_TIME_LABEL,
   PEOPLE,
   addDaysToKey,
   buildMonthCells,
@@ -31,8 +32,18 @@ import {
 } from "../lib/calendar.js";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
-const CLOCK_HOURS = Array.from({ length: 12 }, (_, index) => (index === 0 ? 12 : index));
-const QUICK_MINUTES = Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, "0"));
+const HOUR_MARKERS = [
+  { label: "00/24", value: 0 },
+  { label: "03/15", value: 3 },
+  { label: "06/18", value: 6 },
+  { label: "09/21", value: 9 },
+];
+const MINUTE_MARKERS = [
+  { label: "00", value: 0 },
+  { label: "15", value: 15 },
+  { label: "30", value: 30 },
+  { label: "45", value: 45 },
+];
 const AUTO_REFRESH_MS = 6000;
 const SWIPE_THRESHOLD = 56;
 
@@ -91,25 +102,6 @@ function clockHandStyle(value, total, radius) {
   };
 }
 
-function getDayPart(hour) {
-  return Number(hour) < 12 ? "am" : "pm";
-}
-
-function getClockHour(hour) {
-  const numericHour = Number(hour);
-  const clockHour = numericHour % 12;
-  return clockHour === 0 ? 12 : clockHour;
-}
-
-function toFullHour(clockHour, dayPart) {
-  const numericHour = Number(clockHour);
-  if (dayPart === "am") {
-    return String(numericHour === 12 ? 0 : numericHour).padStart(2, "0");
-  }
-
-  return String(numericHour === 12 ? 12 : numericHour + 12).padStart(2, "0");
-}
-
 function normalizeMinute(value) {
   if (value === "") return "00";
 
@@ -119,22 +111,40 @@ function normalizeMinute(value) {
   return String(Math.min(59, Math.max(0, numericValue))).padStart(2, "0");
 }
 
+function normalizeHour(value) {
+  const normalizedValue = ((Math.round(value) % 24) + 24) % 24;
+  return String(normalizedValue).padStart(2, "0");
+}
+
+function closestContinuousHour(angle, currentHour) {
+  const hourOnDial = Math.round((angle / (Math.PI * 2)) * 12) % 12;
+  const candidates = [hourOnDial, hourOnDial + 12, hourOnDial + 24];
+  return candidates.reduce((best, candidate) =>
+    Math.abs(candidate - currentHour) < Math.abs(best - currentHour) ? candidate : best,
+  );
+}
+
+function normalizeAngleDelta(delta) {
+  if (delta > Math.PI) return delta - Math.PI * 2;
+  if (delta < -Math.PI) return delta + Math.PI * 2;
+  return delta;
+}
+
 function TimePicker({ value, onChange }) {
   const [open, setOpen] = useState(false);
   const [draftHour, setDraftHour] = useState(value ? value.slice(0, 2) : "09");
   const [draftMinute, setDraftMinute] = useState(value ? value.slice(3, 5) : "00");
-  const [dayPart, setDayPart] = useState(value ? getDayPart(value.slice(0, 2)) : "am");
   const [mode, setMode] = useState("hour");
   const pickerRef = useRef(null);
   const clockFaceRef = useRef(null);
   const draggingRef = useRef(false);
-  const label = value || "весь день";
+  const hourDragRef = useRef(null);
+  const label = value || NO_TIME_LABEL;
 
   useEffect(() => {
     if (!value) return;
     setDraftHour(value.slice(0, 2));
     setDraftMinute(value.slice(3, 5));
-    setDayPart(getDayPart(value.slice(0, 2)));
   }, [value]);
 
   useEffect(() => {
@@ -149,28 +159,14 @@ function TimePicker({ value, onChange }) {
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [open]);
 
-  function setClockHour(clockHour) {
-    setDraftHour(toFullHour(clockHour, dayPart));
-  }
-
-  function pickHour(clockHour) {
-    setClockHour(clockHour);
-    setMode("minute");
-  }
-
-  function pickDayPart(nextDayPart) {
-    setDayPart(nextDayPart);
-    setDraftHour(toFullHour(getClockHour(draftHour), nextDayPart));
-  }
-
   function commitTime(minute = draftMinute) {
     onChange(`${draftHour}:${normalizeMinute(minute)}`);
     setOpen(false);
   }
 
-  function pickFromPointer(event, targetMode = mode) {
+  function getPointerAngle(event) {
     const rect = clockFaceRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    if (!rect) return null;
 
     const centerX = rect.left + rect.width / 2;
     const centerY = rect.top + rect.height / 2;
@@ -178,10 +174,25 @@ function TimePicker({ value, onChange }) {
     const dy = event.clientY - centerY;
     let angle = Math.atan2(dy, dx) + Math.PI / 2;
     if (angle < 0) angle += Math.PI * 2;
+    return angle;
+  }
+
+  function pickFromPointer(event, targetMode = mode) {
+    const angle = getPointerAngle(event);
+    if (angle === null) return;
 
     if (targetMode === "hour") {
-      const value = Math.round((angle / (Math.PI * 2)) * 12) % 12;
-      setClockHour(value === 0 ? 12 : value);
+      if (!hourDragRef.current) {
+        const continuousHour = closestContinuousHour(angle, Number(draftHour));
+        hourDragRef.current = { previousAngle: angle, value: continuousHour };
+        setDraftHour(normalizeHour(continuousHour));
+        return;
+      }
+
+      const delta = normalizeAngleDelta(angle - hourDragRef.current.previousAngle);
+      const nextValue = hourDragRef.current.value + (delta / (Math.PI * 2)) * 12;
+      hourDragRef.current = { previousAngle: angle, value: nextValue };
+      setDraftHour(normalizeHour(nextValue));
       return;
     }
 
@@ -191,6 +202,7 @@ function TimePicker({ value, onChange }) {
 
   function handleClockPointerDown(event) {
     draggingRef.current = true;
+    hourDragRef.current = null;
     event.currentTarget.setPointerCapture?.(event.pointerId);
     pickFromPointer(event);
   }
@@ -205,10 +217,11 @@ function TimePicker({ value, onChange }) {
     draggingRef.current = false;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
     pickFromPointer(event);
+    hourDragRef.current = null;
     if (mode === "hour") setMode("minute");
   }
 
-  const handValue = mode === "hour" ? getClockHour(draftHour) % 12 : Number(draftMinute);
+  const handValue = mode === "hour" ? Number(draftHour) % 12 : Number(draftMinute);
   const handStyle = clockHandStyle(handValue, mode === "hour" ? 12 : 60, 104);
 
   return (
@@ -262,22 +275,6 @@ function TimePicker({ value, onChange }) {
                   Минуты
                 </button>
               </div>
-              <div className="period-toggle" role="group" aria-label="Половина дня">
-                <button
-                  className={`period-button${dayPart === "am" ? " selected" : ""}`}
-                  type="button"
-                  onClick={() => pickDayPart("am")}
-                >
-                  00-11
-                </button>
-                <button
-                  className={`period-button${dayPart === "pm" ? " selected" : ""}`}
-                  type="button"
-                  onClick={() => pickDayPart("pm")}
-                >
-                  12-23
-                </button>
-              </div>
             </div>
             <button className="icon-button subtle compact" type="button" onClick={() => setOpen(false)} aria-label="Закрыть">
               <X size={16} />
@@ -302,19 +299,19 @@ function TimePicker({ value, onChange }) {
               </strong>
             </div>
 
-            {(mode === "hour" ? CLOCK_HOURS : QUICK_MINUTES).map((item) => {
+            {(mode === "hour" ? HOUR_MARKERS : MINUTE_MARKERS).map((marker) => {
               const radius = 104;
-              const clockValue = mode === "hour" ? item % 12 : Number(item);
-              const style = clockPoint(clockValue, mode === "hour" ? 12 : 60, radius);
-              const selected = mode === "hour" ? getClockHour(draftHour) === item : draftMinute === item;
+              const style = clockPoint(marker.value, mode === "hour" ? 12 : 60, radius);
+              const selected =
+                mode === "hour" ? Number(draftHour) % 12 === marker.value : Number(draftMinute) === marker.value;
 
               return (
                 <span
                   className={`clock-option${selected ? " selected" : ""}${mode === "hour" ? " hour" : " minute"}`}
-                  key={item}
+                  key={marker.label}
                   style={style}
                 >
-                  {item}
+                  {marker.label}
                 </span>
               );
             })}
@@ -343,7 +340,7 @@ function TimePicker({ value, onChange }) {
                 setOpen(false);
               }}
             >
-              Весь день
+              Без времени
             </button>
             <button className="done-time-button" type="button" onClick={() => commitTime()}>
               Готово
@@ -647,14 +644,8 @@ export default function CalendarPage() {
           <div className="month-title-row">
             <h2>{formatMonthLabel(viewDate)}</h2>
             <div className="month-controls" aria-label="Навигация по месяцам">
-              <button className="icon-button" type="button" onClick={() => moveMonth(-1)} aria-label="Предыдущий месяц">
-                <ChevronLeft size={20} />
-              </button>
               <button className="today-button" type="button" onClick={jumpToday}>
-                Сегодня
-              </button>
-              <button className="icon-button" type="button" onClick={() => moveMonth(1)} aria-label="Следующий месяц">
-                <ChevronRight size={20} />
+                К сегодня
               </button>
             </div>
             <div className="month-actions">
@@ -714,7 +705,7 @@ export default function CalendarPage() {
                   <span className="day-events">
                     {dayEvents.slice(0, 2).map((event) => (
                       <span className="event-chip" key={event.id}>
-                        <span>{event.time || "весь день"}</span>
+                        <span>{event.time || NO_TIME_LABEL}</span>
                         {getPersonName(event.ownerId)} · {event.title}
                       </span>
                     ))}
@@ -750,7 +741,7 @@ export default function CalendarPage() {
 
                 return (
                   <article className="event-row" key={event.id}>
-                    <div className="event-time">{event.time || "весь день"}</div>
+                    <div className="event-time">{event.time || NO_TIME_LABEL}</div>
                     <div className="event-content">
                       <span className={`owner-pill owner-${event.ownerId || DEFAULT_OWNER_ID}`}>
                         {getPersonName(event.ownerId)}

@@ -67,10 +67,9 @@ button:disabled {
   z-index: -2;
   overflow: hidden;
   background:
-    radial-gradient(circle at 10% 18%, rgba(255, 207, 109, 0.32), transparent 19%),
-    radial-gradient(circle at 86% 10%, rgba(101, 243, 208, 0.28), transparent 18%),
-    radial-gradient(circle at 76% 78%, rgba(255, 122, 182, 0.24), transparent 22%),
-    linear-gradient(140deg, #314362 0%, #283752 42%, #292541 100%);
+    linear-gradient(115deg, rgba(255, 207, 109, 0.12) 0 12%, transparent 28%),
+    linear-gradient(255deg, rgba(101, 243, 208, 0.12) 0 18%, transparent 38%),
+    linear-gradient(145deg, #354b5e 0%, #2d4057 44%, #38354f 100%);
 }
 
 .cosmic-backdrop::before,
@@ -82,47 +81,54 @@ button:disabled {
 }
 
 .cosmic-backdrop::before {
-  opacity: 0.58;
-  background-image:
-    radial-gradient(circle, rgba(255, 255, 255, 0.9) 0 1px, transparent 1.4px),
-    radial-gradient(circle, rgba(101, 243, 208, 0.78) 0 1px, transparent 1.5px),
-    radial-gradient(circle, rgba(255, 207, 109, 0.76) 0 1px, transparent 1.5px);
-  background-position:
-    0 0,
-    38px 64px,
-    154px 28px;
-  background-size:
-    92px 92px,
-    156px 156px,
-    236px 236px;
-  animation: star-drift 58s linear infinite;
+  inset: -18%;
+  opacity: 0.68;
+  background:
+    repeating-radial-gradient(
+      ellipse at 18% 18%,
+      transparent 0 34px,
+      rgba(178, 255, 240, 0.15) 35px 36px,
+      transparent 37px 72px
+    ),
+    repeating-radial-gradient(
+      ellipse at 82% 76%,
+      transparent 0 42px,
+      rgba(255, 207, 109, 0.13) 43px 44px,
+      transparent 45px 88px
+    ),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.038) 0 1px, transparent 1px 82px),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.032) 0 1px, transparent 1px 82px);
+  transform: rotate(-4deg) scale(1.08);
+  animation: map-drift 34s ease-in-out infinite alternate;
 }
 
 .cosmic-backdrop::after {
-  opacity: 0.66;
+  opacity: 0.62;
   background:
-    linear-gradient(118deg, transparent 0 28%, rgba(101, 243, 208, 0.2) 38%, transparent 48%),
-    linear-gradient(244deg, transparent 0 42%, rgba(255, 122, 182, 0.18) 53%, transparent 64%),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.055) 0 1px, transparent 1px 76px),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.045) 0 1px, transparent 1px 76px);
-  transform: perspective(800px) rotateX(57deg) translateY(16%);
-  transform-origin: center bottom;
-  animation: grid-breathe 12s ease-in-out infinite alternate;
+    linear-gradient(116deg, transparent 0 18%, rgba(255, 207, 109, 0.18) 18.1% 18.45%, transparent 18.8%),
+    linear-gradient(116deg, transparent 0 62%, rgba(101, 243, 208, 0.15) 62.1% 62.45%, transparent 62.8%),
+    linear-gradient(28deg, transparent 0 74%, rgba(255, 122, 182, 0.1) 74.1% 74.5%, transparent 74.9%),
+    repeating-linear-gradient(135deg, transparent 0 19px, rgba(255, 255, 255, 0.036) 20px 21px, transparent 22px 58px);
+  animation: survey-shift 18s ease-in-out infinite alternate;
 }
 
-@keyframes star-drift {
-  to {
-    transform: translate3d(-120px, 160px, 0);
-  }
-}
-
-@keyframes grid-breathe {
+@keyframes map-drift {
   from {
-    opacity: 0.54;
+    transform: rotate(-4deg) scale(1.08) translate3d(-10px, -6px, 0);
   }
 
   to {
-    opacity: 0.92;
+    transform: rotate(-4deg) scale(1.08) translate3d(18px, 14px, 0);
+  }
+}
+
+@keyframes survey-shift {
+  from {
+    transform: translate3d(-12px, 0, 0);
+  }
+
+  to {
+    transform: translate3d(12px, 0, 0);
   }
 }
 
@@ -831,17 +837,6 @@ h3 {
   font-weight: 700;
 }
 
-.period-toggle {
-  display: inline-grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 3px;
-  margin-top: 6px;
-  padding: 3px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
-}
-
 .clock-mode-tabs {
   display: inline-grid;
   grid-template-columns: 1fr 1fr;
@@ -853,8 +848,7 @@ h3 {
   background: rgba(255, 255, 255, 0.06);
 }
 
-.clock-mode-tab,
-.period-button {
+.clock-mode-tab {
   min-height: 28px;
   border: 0;
   border-radius: 6px;
@@ -866,8 +860,7 @@ h3 {
   padding: 0 8px;
 }
 
-.clock-mode-tab.selected,
-.period-button.selected {
+.clock-mode-tab.selected {
   background: rgba(101, 243, 208, 0.18);
   color: var(--accent-strong);
 }
@@ -983,15 +976,15 @@ h3 {
   z-index: 2;
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
-  margin: -21px 0 0 -21px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.085);
-  color: var(--text);
+  width: 58px;
+  height: 30px;
+  margin: -15px 0 0 -29px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(12, 18, 30, 0.34);
+  color: rgba(255, 255, 255, 0.74);
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 0.78rem;
+  font-size: 0.7rem;
   font-weight: 700;
   pointer-events: none;
   transform: translate(var(--x), var(--y));
@@ -999,20 +992,16 @@ h3 {
 
 .clock-option.minute {
   width: 42px;
-  height: 42px;
-  margin: -21px 0 0 -21px;
+  margin-left: -21px;
 }
 
 .clock-option.hour {
-  font-size: 0.88rem;
+  font-size: 0.66rem;
 }
 
-.clock-option:hover,
 .clock-option.selected {
-  border-color: rgba(255, 207, 109, 0.72);
-  background: rgba(255, 207, 109, 0.24);
-  color: #fff3cf;
-  box-shadow: 0 0 18px rgba(255, 207, 109, 0.2);
+  background: rgba(255, 207, 109, 0.18);
+  color: #ffe8b2;
 }
 
 .minute-exact {
