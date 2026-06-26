@@ -799,7 +799,7 @@ export default function CalendarPage() {
           <div className="month-title-row">
             <div className="month-heading">
               <button
-                className="icon-button subtle month-heading-nav"
+                className="icon-button subtle mobile-month-nav"
                 type="button"
                 onClick={() => moveMonth(-1)}
                 aria-label="Предыдущий месяц"
@@ -809,7 +809,7 @@ export default function CalendarPage() {
               </button>
               <h2>{formatMonthLabel(viewDate)}</h2>
               <button
-                className="icon-button subtle month-heading-nav"
+                className="icon-button subtle mobile-month-nav"
                 type="button"
                 onClick={() => moveMonth(1)}
                 aria-label="Следующий месяц"

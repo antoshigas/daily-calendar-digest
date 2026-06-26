@@ -278,10 +278,6 @@ h3 {
   text-transform: capitalize;
 }
 
-.month-heading-nav {
-  display: none;
-}
-
 .month-controls {
   display: flex;
   align-items: center;
@@ -330,6 +326,10 @@ h3 {
   width: 34px;
   min-height: 34px;
   padding: 0;
+}
+
+.icon-button.mobile-month-nav {
+  display: none;
 }
 
 .today-button {
@@ -1187,17 +1187,13 @@ h3 {
     margin: 6px 0;
   }
 
-  .month-heading {
-    gap: 4px;
-  }
-
   .month-heading h2 {
     min-width: 0;
     font-size: clamp(0.9rem, 4vw, 1.05rem);
     white-space: nowrap;
   }
 
-  .month-heading-nav {
+  .icon-button.mobile-month-nav {
     display: inline-flex;
     width: 32px;
     min-height: 32px;
