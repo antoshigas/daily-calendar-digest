@@ -45,12 +45,10 @@ const MINUTE_MARKERS = [
 ];
 const AUTO_REFRESH_MS = 6000;
 const SWIPE_THRESHOLD = 56;
-const SWIPE_EDGE_GUARD_PX = 44;
 const SWIPE_INTENT_RATIO = 1.15;
 const WHEEL_MONTH_THRESHOLD = 80;
 const WHEEL_MONTH_COOLDOWN_MS = 650;
 const FOCUS_SCROLL_DELAY_MS = 120;
-const MONTH_SWIPE_SELECTOR = ".month-grid";
 
 function emptyForm(date, ownerId = DEFAULT_OWNER_ID) {
   return {
@@ -599,19 +597,6 @@ export default function CalendarPage() {
     setEditingId(null);
   }
 
-  function resetSwipe() {
-    swipeStartX.current = null;
-    swipeStartY.current = null;
-  }
-
-  function canStartMonthSwipe(event) {
-    const touch = event.touches[0];
-    if (!touch || !(event.target instanceof Element) || !event.target.closest(MONTH_SWIPE_SELECTOR)) return false;
-
-    const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
-    return touch.clientX > SWIPE_EDGE_GUARD_PX && touch.clientX < viewportWidth - SWIPE_EDGE_GUARD_PX;
-  }
-
   function startEdit(event) {
     if (!isWritableDateKey(event.date, dateContext)) {
       setFeedback(getDateLockReason(event.date, dateContext));
@@ -642,7 +627,8 @@ export default function CalendarPage() {
 
     const deltaX = clientX - swipeStartX.current;
     const deltaY = clientY - swipeStartY.current;
-    resetSwipe();
+    swipeStartX.current = null;
+    swipeStartY.current = null;
 
     if (Math.abs(deltaX) < SWIPE_THRESHOLD || Math.abs(deltaX) < Math.abs(deltaY) * SWIPE_INTENT_RATIO) return;
     moveMonth(deltaX > 0 ? -1 : 1);
@@ -769,19 +755,16 @@ export default function CalendarPage() {
           ref={calendarPanelRef}
           aria-label="Календарь"
           onTouchStart={(event) => {
-            const touch = event.touches[0];
-            if (!touch || !canStartMonthSwipe(event)) {
-              resetSwipe();
-              return;
-            }
-
-            swipeStartX.current = touch.clientX;
-            swipeStartY.current = touch.clientY;
+            swipeStartX.current = event.touches[0]?.clientX ?? null;
+            swipeStartY.current = event.touches[0]?.clientY ?? null;
           }}
           onTouchEnd={(event) => {
             handleSwipeEnd(event.changedTouches[0]?.clientX ?? 0, event.changedTouches[0]?.clientY ?? 0);
           }}
-          onTouchCancel={resetSwipe}
+          onTouchCancel={() => {
+            swipeStartX.current = null;
+            swipeStartY.current = null;
+          }}
           onWheel={handleCalendarWheel}
         >
           <header className="topbar">
