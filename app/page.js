@@ -398,7 +398,9 @@ function TimePicker({ value, onChange }) {
 
 export default function CalendarPage() {
   const initialTodayKey = useMemo(() => getTodayKey(), []);
+  const calendarPanelRef = useRef(null);
   const swipeStartX = useRef(null);
+  const swipeStartY = useRef(null);
   const [todayKey, setTodayKey] = useState(initialTodayKey);
   const [todayLocked, setTodayLocked] = useState(false);
   const [todayAfterDigest, setTodayAfterDigest] = useState(false);
@@ -452,7 +454,7 @@ export default function CalendarPage() {
   }
 
   useEffect(() => {
-    loadEvents().catch((error) => setFeedback(error.message));
+    loadEvents({ quiet: true }).catch((error) => setFeedback(error.message));
   }, []);
 
   useEffect(() => {
@@ -483,6 +485,27 @@ export default function CalendarPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  useEffect(() => {
+    const panel = calendarPanelRef.current;
+    if (!panel) return undefined;
+
+    function handleTouchMove(event) {
+      if (event.touches.length !== 1 || swipeStartX.current === null || swipeStartY.current === null) return;
+
+      const touch = event.touches[0];
+      const deltaX = touch.clientX - swipeStartX.current;
+      const deltaY = touch.clientY - swipeStartY.current;
+      const horizontalIntent = Math.abs(deltaX) > 10 && Math.abs(deltaX) > Math.abs(deltaY) * 1.15;
+
+      if (horizontalIntent) {
+        event.preventDefault();
+      }
+    }
+
+    panel.addEventListener("touchmove", handleTouchMove, { passive: false });
+    return () => panel.removeEventListener("touchmove", handleTouchMove);
   }, []);
 
   useEffect(() => {
@@ -602,14 +625,16 @@ export default function CalendarPage() {
     setForm((current) => emptyForm(date, current.ownerId));
   }
 
-  function handleSwipeEnd(clientX) {
-    if (swipeStartX.current === null) return;
+  function handleSwipeEnd(clientX, clientY) {
+    if (swipeStartX.current === null || swipeStartY.current === null) return;
 
-    const delta = clientX - swipeStartX.current;
+    const deltaX = clientX - swipeStartX.current;
+    const deltaY = clientY - swipeStartY.current;
     swipeStartX.current = null;
+    swipeStartY.current = null;
 
-    if (Math.abs(delta) < SWIPE_THRESHOLD) return;
-    moveMonth(delta > 0 ? -1 : 1);
+    if (Math.abs(deltaX) < SWIPE_THRESHOLD || Math.abs(deltaX) < Math.abs(deltaY) * 1.15) return;
+    moveMonth(deltaX > 0 ? -1 : 1);
   }
 
   function isLikelyMouseWheel(event) {
@@ -730,12 +755,18 @@ export default function CalendarPage() {
       <main className={`app-shell${detailsOpen ? "" : " details-collapsed"}`}>
         <section
           className="calendar-panel"
+          ref={calendarPanelRef}
           aria-label="Календарь"
           onTouchStart={(event) => {
             swipeStartX.current = event.touches[0]?.clientX ?? null;
+            swipeStartY.current = event.touches[0]?.clientY ?? null;
           }}
           onTouchEnd={(event) => {
-            handleSwipeEnd(event.changedTouches[0]?.clientX ?? 0);
+            handleSwipeEnd(event.changedTouches[0]?.clientX ?? 0, event.changedTouches[0]?.clientY ?? 0);
+          }}
+          onTouchCancel={() => {
+            swipeStartX.current = null;
+            swipeStartY.current = null;
           }}
           onWheel={handleCalendarWheel}
         >
