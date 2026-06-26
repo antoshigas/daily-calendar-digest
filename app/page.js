@@ -46,6 +46,8 @@ const MINUTE_MARKERS = [
 ];
 const AUTO_REFRESH_MS = 6000;
 const SWIPE_THRESHOLD = 56;
+const WHEEL_MONTH_THRESHOLD = 80;
+const WHEEL_MONTH_COOLDOWN_MS = 650;
 
 function emptyForm(date, ownerId = DEFAULT_OWNER_ID) {
   return {
@@ -371,6 +373,7 @@ export default function CalendarPage() {
   const [deletePassword, setDeletePassword] = useState("");
   const eventsRef = useRef([]);
   const eventsLoadedRef = useRef(false);
+  const wheelMonthRef = useRef({ lastAt: 0 });
 
   const dateContext = useMemo(
     () => ({ todayKey, todayLocked, todayAfterDigest }),
@@ -533,6 +536,36 @@ export default function CalendarPage() {
     moveMonth(delta > 0 ? -1 : 1);
   }
 
+  function isLikelyMouseWheel(event) {
+    if (event.ctrlKey || event.metaKey || event.shiftKey) return false;
+
+    const absX = Math.abs(event.deltaX);
+    const absY = Math.abs(event.deltaY);
+    if (absY === 0 || absX > absY * 0.35) return false;
+
+    if (event.deltaMode === 1) {
+      return absY >= 1 && absY <= 20;
+    }
+
+    if (event.deltaMode !== 0 || absY < WHEEL_MONTH_THRESHOLD || !Number.isInteger(event.deltaY)) {
+      return false;
+    }
+
+    return absY % 50 === 0 || absY % 100 === 0 || absY % 120 === 0;
+  }
+
+  function handleCalendarWheel(event) {
+    if (!isLikelyMouseWheel(event)) return;
+
+    event.preventDefault();
+
+    const now = Date.now();
+    if (now - wheelMonthRef.current.lastAt < WHEEL_MONTH_COOLDOWN_MS) return;
+
+    wheelMonthRef.current.lastAt = now;
+    moveMonth(event.deltaY > 0 ? 1 : -1);
+  }
+
   async function saveEvent(event) {
     event.preventDefault();
 
@@ -628,6 +661,7 @@ export default function CalendarPage() {
           onTouchEnd={(event) => {
             handleSwipeEnd(event.changedTouches[0]?.clientX ?? 0);
           }}
+          onWheel={handleCalendarWheel}
         >
           <header className="topbar">
             <div className="brand">
