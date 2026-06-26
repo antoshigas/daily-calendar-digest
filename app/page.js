@@ -48,6 +48,7 @@ const AUTO_REFRESH_MS = 6000;
 const SWIPE_THRESHOLD = 56;
 const WHEEL_MONTH_THRESHOLD = 80;
 const WHEEL_MONTH_COOLDOWN_MS = 650;
+const FOCUS_SCROLL_DELAY_MS = 120;
 
 function emptyForm(date, ownerId = DEFAULT_OWNER_ID) {
   return {
@@ -130,6 +131,47 @@ function normalizeAngleDelta(delta) {
   if (delta > Math.PI) return delta - Math.PI * 2;
   if (delta < -Math.PI) return delta + Math.PI * 2;
   return delta;
+}
+
+function getScrollContainer(element) {
+  let current = element.parentElement;
+
+  while (current && current !== document.body) {
+    const style = window.getComputedStyle(current);
+    const canScroll = /(auto|scroll)/.test(style.overflowY) && current.scrollHeight > current.clientHeight + 2;
+    if (canScroll) return current;
+    current = current.parentElement;
+  }
+
+  return element.closest(".details-panel") || document.scrollingElement;
+}
+
+function keepFieldVisible(element) {
+  const target = element instanceof HTMLElement ? element : null;
+  if (!target || !target.closest(".details-panel")) return;
+
+  const viewport = window.visualViewport;
+  const viewportTop = viewport?.offsetTop ?? 0;
+  const viewportHeight = viewport?.height ?? window.innerHeight;
+  const safeTop = viewportTop + 66;
+  const safeBottom = viewportTop + viewportHeight - 112;
+  const rect = target.getBoundingClientRect();
+
+  let delta = 0;
+  if (rect.bottom > safeBottom) {
+    delta = rect.bottom - safeBottom;
+  } else if (rect.top < safeTop) {
+    delta = rect.top - safeTop;
+  }
+
+  const container = getScrollContainer(target);
+  if (container && delta !== 0) {
+    container.scrollBy({ top: delta, behavior: "smooth" });
+  }
+
+  window.setTimeout(() => {
+    target.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+  }, 40);
 }
 
 function TimePicker({ value, onChange }) {
@@ -441,6 +483,40 @@ export default function CalendarPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+
+    function updateAppHeight() {
+      const height = window.visualViewport?.height ?? window.innerHeight;
+      root.style.setProperty("--app-height", `${Math.round(height)}px`);
+    }
+
+    updateAppHeight();
+    window.visualViewport?.addEventListener("resize", updateAppHeight);
+    window.visualViewport?.addEventListener("scroll", updateAppHeight);
+    window.addEventListener("resize", updateAppHeight);
+
+    return () => {
+      window.visualViewport?.removeEventListener("resize", updateAppHeight);
+      window.visualViewport?.removeEventListener("scroll", updateAppHeight);
+      window.removeEventListener("resize", updateAppHeight);
+      root.style.removeProperty("--app-height");
+    };
+  }, []);
+
+  useEffect(() => {
+    function handleFocusIn(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
+
+      window.setTimeout(() => keepFieldVisible(target), FOCUS_SCROLL_DELAY_MS);
+      window.setTimeout(() => keepFieldVisible(target), FOCUS_SCROLL_DELAY_MS + 260);
+    }
+
+    document.addEventListener("focusin", handleFocusIn);
+    return () => document.removeEventListener("focusin", handleFocusIn);
   }, []);
 
   const monthCells = useMemo(() => buildMonthCells(viewDate), [viewDate]);

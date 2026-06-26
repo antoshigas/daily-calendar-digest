@@ -136,7 +136,7 @@ button:disabled {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
   gap: 12px;
-  height: 100dvh;
+  height: var(--app-height, 100dvh);
   min-height: 0;
   overflow: hidden;
   padding: clamp(8px, 1.35vw, 14px);
@@ -602,6 +602,7 @@ h3 {
   gap: 10px;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   padding-right: 2px;
 }
 
@@ -745,6 +746,8 @@ h3 {
   min-height: 0;
   max-height: 54%;
   overflow: auto;
+  overscroll-behavior: contain;
+  scroll-padding-bottom: 140px;
   padding-top: 16px;
   border-top: 1px solid var(--line);
 }
@@ -1076,6 +1079,7 @@ h3 {
   border: 1px solid rgba(255, 116, 121, 0.34);
   border-radius: 8px;
   background: var(--danger-soft);
+  scroll-margin-bottom: 160px;
 }
 
 .delete-actions {
@@ -1135,6 +1139,13 @@ h3 {
   .calendar-panel,
   .details-panel {
     padding: 9px;
+  }
+
+  .details-panel {
+    overflow: auto;
+    scroll-padding: 76px 0 170px;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   .topbar {
@@ -1230,7 +1241,23 @@ h3 {
 
   .event-form,
   .readonly-note {
-    max-height: 58%;
+    flex: 0 0 auto;
+    max-height: none;
+    overflow: visible;
+    padding-bottom: max(22px, env(safe-area-inset-bottom));
+    scroll-margin-bottom: 170px;
+  }
+
+  .event-list {
+    flex: 0 0 auto;
+    overflow: visible;
+    padding-bottom: 8px;
+    scroll-margin-bottom: 170px;
+  }
+
+  .delete-form {
+    padding: 10px;
+    scroll-margin: 90px 0 190px;
   }
 
   .clock-face {
