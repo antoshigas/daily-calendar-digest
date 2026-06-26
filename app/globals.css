@@ -265,9 +265,21 @@ h3 {
   margin: 8px 0 7px;
 }
 
+.month-heading {
+  display: flex;
+  align-items: center;
+  justify-self: start;
+  gap: 6px;
+  min-width: 0;
+}
+
 .month-title-row h2 {
   justify-self: start;
   text-transform: capitalize;
+}
+
+.month-heading-nav {
+  display: none;
 }
 
 .month-controls {
@@ -419,6 +431,8 @@ h3 {
   gap: 6px;
   min-height: 0;
   overflow: hidden;
+  touch-action: pan-y;
+  user-select: none;
 }
 
 .day-cell {
@@ -1171,6 +1185,22 @@ h3 {
 
   .month-title-row {
     margin: 6px 0;
+  }
+
+  .month-heading {
+    gap: 4px;
+  }
+
+  .month-heading h2 {
+    min-width: 0;
+    font-size: clamp(0.9rem, 4vw, 1.05rem);
+    white-space: nowrap;
+  }
+
+  .month-heading-nav {
+    display: inline-flex;
+    width: 32px;
+    min-height: 32px;
   }
 
   .feedback-line {

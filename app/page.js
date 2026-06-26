@@ -10,7 +10,6 @@ import {
   PanelRightOpen,
   Pencil,
   Plus,
-  RefreshCw,
   Trash2,
   X,
 } from "lucide-react";
@@ -46,9 +45,12 @@ const MINUTE_MARKERS = [
 ];
 const AUTO_REFRESH_MS = 6000;
 const SWIPE_THRESHOLD = 56;
+const SWIPE_EDGE_GUARD_PX = 44;
+const SWIPE_INTENT_RATIO = 1.15;
 const WHEEL_MONTH_THRESHOLD = 80;
 const WHEEL_MONTH_COOLDOWN_MS = 650;
 const FOCUS_SCROLL_DELAY_MS = 120;
+const MONTH_SWIPE_SELECTOR = ".month-grid";
 
 function emptyForm(date, ownerId = DEFAULT_OWNER_ID) {
   return {
@@ -429,8 +431,6 @@ export default function CalendarPage() {
   );
 
   async function loadEvents({ quiet = false } = {}) {
-    if (!quiet) setFeedback("Синхронизирую");
-
     const response = await fetch("/api/events", { cache: "no-store" });
     const payload = await response.json();
 
@@ -450,7 +450,6 @@ export default function CalendarPage() {
     setTodayLocked(Boolean(payload.todayLocked));
     setTodayAfterDigest(Boolean(payload.todayAfterDigest));
     setOwnerPasswordStatus(payload.ownerPasswordStatus || {});
-    if (!quiet) setFeedback("Обновлено");
   }
 
   useEffect(() => {
@@ -497,7 +496,7 @@ export default function CalendarPage() {
       const touch = event.touches[0];
       const deltaX = touch.clientX - swipeStartX.current;
       const deltaY = touch.clientY - swipeStartY.current;
-      const horizontalIntent = Math.abs(deltaX) > 10 && Math.abs(deltaX) > Math.abs(deltaY) * 1.15;
+      const horizontalIntent = Math.abs(deltaX) > 10 && Math.abs(deltaX) > Math.abs(deltaY) * SWIPE_INTENT_RATIO;
 
       if (horizontalIntent) {
         event.preventDefault();
@@ -600,6 +599,19 @@ export default function CalendarPage() {
     setEditingId(null);
   }
 
+  function resetSwipe() {
+    swipeStartX.current = null;
+    swipeStartY.current = null;
+  }
+
+  function canStartMonthSwipe(event) {
+    const touch = event.touches[0];
+    if (!touch || !(event.target instanceof Element) || !event.target.closest(MONTH_SWIPE_SELECTOR)) return false;
+
+    const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+    return touch.clientX > SWIPE_EDGE_GUARD_PX && touch.clientX < viewportWidth - SWIPE_EDGE_GUARD_PX;
+  }
+
   function startEdit(event) {
     if (!isWritableDateKey(event.date, dateContext)) {
       setFeedback(getDateLockReason(event.date, dateContext));
@@ -630,10 +642,9 @@ export default function CalendarPage() {
 
     const deltaX = clientX - swipeStartX.current;
     const deltaY = clientY - swipeStartY.current;
-    swipeStartX.current = null;
-    swipeStartY.current = null;
+    resetSwipe();
 
-    if (Math.abs(deltaX) < SWIPE_THRESHOLD || Math.abs(deltaX) < Math.abs(deltaY) * 1.15) return;
+    if (Math.abs(deltaX) < SWIPE_THRESHOLD || Math.abs(deltaX) < Math.abs(deltaY) * SWIPE_INTENT_RATIO) return;
     moveMonth(deltaX > 0 ? -1 : 1);
   }
 
@@ -758,16 +769,19 @@ export default function CalendarPage() {
           ref={calendarPanelRef}
           aria-label="Календарь"
           onTouchStart={(event) => {
-            swipeStartX.current = event.touches[0]?.clientX ?? null;
-            swipeStartY.current = event.touches[0]?.clientY ?? null;
+            const touch = event.touches[0];
+            if (!touch || !canStartMonthSwipe(event)) {
+              resetSwipe();
+              return;
+            }
+
+            swipeStartX.current = touch.clientX;
+            swipeStartY.current = touch.clientY;
           }}
           onTouchEnd={(event) => {
             handleSwipeEnd(event.changedTouches[0]?.clientX ?? 0, event.changedTouches[0]?.clientY ?? 0);
           }}
-          onTouchCancel={() => {
-            swipeStartX.current = null;
-            swipeStartY.current = null;
-          }}
+          onTouchCancel={resetSwipe}
           onWheel={handleCalendarWheel}
         >
           <header className="topbar">
@@ -783,22 +797,33 @@ export default function CalendarPage() {
           </header>
 
           <div className="month-title-row">
-            <h2>{formatMonthLabel(viewDate)}</h2>
+            <div className="month-heading">
+              <button
+                className="icon-button subtle month-heading-nav"
+                type="button"
+                onClick={() => moveMonth(-1)}
+                aria-label="Предыдущий месяц"
+                title="Предыдущий месяц"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <h2>{formatMonthLabel(viewDate)}</h2>
+              <button
+                className="icon-button subtle month-heading-nav"
+                type="button"
+                onClick={() => moveMonth(1)}
+                aria-label="Следующий месяц"
+                title="Следующий месяц"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
             <div className="month-controls" aria-label="Навигация по месяцам">
               <button className="today-button" type="button" onClick={jumpToday}>
                 К сегодня
               </button>
             </div>
             <div className="month-actions">
-              <button
-                className="icon-button subtle"
-                type="button"
-                onClick={() => loadEvents().catch((error) => setFeedback(error.message))}
-                aria-label="Синхронизировать"
-                title="Синхронизировать"
-              >
-                <RefreshCw size={18} />
-              </button>
               <button
                 className={`icon-button subtle${detailsOpen ? " active-control" : ""}`}
                 type="button"
