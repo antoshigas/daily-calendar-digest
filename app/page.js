@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Archive,
   CalendarDays,
   Check,
   ChevronLeft,
@@ -56,8 +57,6 @@ const SWIPE_INTENT_RATIO = 1.15;
 const WHEEL_MONTH_THRESHOLD = 80;
 const WHEEL_MONTH_COOLDOWN_MS = 650;
 const FOCUS_SCROLL_DELAY_MS = 120;
-const SECRET_TAPS_REQUIRED = 5;
-const SECRET_TAP_WINDOW_MS = 1700;
 
 function emptyForm(date, ownerId = DEFAULT_OWNER_ID) {
   return {
@@ -476,8 +475,11 @@ function TimePicker({ value, onChange }) {
 export default function CalendarPage() {
   const initialTodayKey = useMemo(() => getTodayKey(), []);
   const calendarPanelRef = useRef(null);
+  const detailsPanelRef = useRef(null);
   const swipeStartX = useRef(null);
   const swipeStartY = useRef(null);
+  const daySwipeStartX = useRef(null);
+  const daySwipeStartY = useRef(null);
   const [todayKey, setTodayKey] = useState(initialTodayKey);
   const [todayLocked, setTodayLocked] = useState(false);
   const [todayAfterDigest, setTodayAfterDigest] = useState(false);
@@ -493,6 +495,7 @@ export default function CalendarPage() {
   const [viewMode, setViewMode] = useState("calendar");
   const [expandedHistoryId, setExpandedHistoryId] = useState(null);
   const [monthMotion, setMonthMotion] = useState("");
+  const [dayMotion, setDayMotion] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
@@ -502,7 +505,7 @@ export default function CalendarPage() {
   const eventsRef = useRef([]);
   const eventsLoadedRef = useRef(false);
   const monthMotionTimerRef = useRef(null);
-  const secretTapRef = useRef({ count: 0, firstAt: 0 });
+  const dayMotionTimerRef = useRef(null);
   const wheelMonthRef = useRef({ lastAt: 0 });
 
   const dateContext = useMemo(
@@ -653,19 +656,34 @@ export default function CalendarPage() {
   }, []);
 
   useEffect(() => {
-    function resetSecretTapOnOutsideClick(event) {
-      if (event.target instanceof Element && event.target.closest(".brand-icon")) return;
-      secretTapRef.current = { count: 0, firstAt: 0 };
+    const panel = detailsPanelRef.current;
+    if (!panel || !detailsOpen) return undefined;
+
+    function handleTouchMove(event) {
+      if (event.touches.length !== 1 || daySwipeStartX.current === null || daySwipeStartY.current === null) return;
+      if (shouldIgnoreDaySwipe(event.target)) return;
+
+      const touch = event.touches[0];
+      const deltaX = touch.clientX - daySwipeStartX.current;
+      const deltaY = touch.clientY - daySwipeStartY.current;
+      const horizontalIntent = Math.abs(deltaX) > 10 && Math.abs(deltaX) > Math.abs(deltaY) * SWIPE_INTENT_RATIO;
+
+      if (horizontalIntent) {
+        event.preventDefault();
+      }
     }
 
-    document.addEventListener("pointerdown", resetSecretTapOnOutsideClick, true);
-    return () => document.removeEventListener("pointerdown", resetSecretTapOnOutsideClick, true);
-  }, []);
+    panel.addEventListener("touchmove", handleTouchMove, { passive: false });
+    return () => panel.removeEventListener("touchmove", handleTouchMove);
+  }, [detailsOpen]);
 
   useEffect(() => {
     return () => {
       if (monthMotionTimerRef.current) {
         window.clearTimeout(monthMotionTimerRef.current);
+      }
+      if (dayMotionTimerRef.current) {
+        window.clearTimeout(dayMotionTimerRef.current);
       }
     };
   }, []);
@@ -740,6 +758,28 @@ export default function CalendarPage() {
     setFormOpen(false);
   }
 
+  function moveSelectedDay(offset) {
+    if (dayMotionTimerRef.current) {
+      window.clearTimeout(dayMotionTimerRef.current);
+    }
+
+    setDayMotion(offset > 0 ? "day-next" : "day-previous");
+    selectDate(addDaysToKey(selectedDate, offset), { toggleSame: false });
+    setEditingId(null);
+    setExpandedHistoryId(null);
+    setFormOpen(false);
+    setDeletingId(null);
+    dayMotionTimerRef.current = window.setTimeout(() => setDayMotion(""), 280);
+  }
+
+  function toggleDeletedView() {
+    setDetailsOpen(false);
+    setFormOpen(false);
+    setEditingId(null);
+    setDeletingId(null);
+    setViewMode((currentMode) => (currentMode === "deleted" ? "calendar" : "deleted"));
+  }
+
   function startEdit(event) {
     if (!isWritableDateKey(event.date, dateContext)) {
       setFeedback(getDateLockReason(event.date, dateContext));
@@ -785,6 +825,36 @@ export default function CalendarPage() {
     moveMonth(deltaX > 0 ? -1 : 1);
   }
 
+  function shouldIgnoreDaySwipe(target) {
+    return (
+      target instanceof Element &&
+      Boolean(target.closest("button, input, textarea, select, .event-form, .delete-form, .time-popover"))
+    );
+  }
+
+  function handleDayTouchStart(event) {
+    if (shouldIgnoreDaySwipe(event.target)) {
+      daySwipeStartX.current = null;
+      daySwipeStartY.current = null;
+      return;
+    }
+
+    daySwipeStartX.current = event.touches[0]?.clientX ?? null;
+    daySwipeStartY.current = event.touches[0]?.clientY ?? null;
+  }
+
+  function handleDaySwipeEnd(clientX, clientY) {
+    if (daySwipeStartX.current === null || daySwipeStartY.current === null) return;
+
+    const deltaX = clientX - daySwipeStartX.current;
+    const deltaY = clientY - daySwipeStartY.current;
+    daySwipeStartX.current = null;
+    daySwipeStartY.current = null;
+
+    if (Math.abs(deltaX) < SWIPE_THRESHOLD || Math.abs(deltaX) < Math.abs(deltaY) * SWIPE_INTENT_RATIO) return;
+    moveSelectedDay(deltaX > 0 ? -1 : 1);
+  }
+
   function isLikelyMouseWheel(event) {
     if (event.ctrlKey || event.metaKey || event.shiftKey) return false;
 
@@ -813,23 +883,6 @@ export default function CalendarPage() {
 
     wheelMonthRef.current.lastAt = now;
     moveMonth(event.deltaY > 0 ? 1 : -1);
-  }
-
-  function handleSecretIconTap() {
-    const now = Date.now();
-    const current = secretTapRef.current;
-    const nextCount = now - current.firstAt > SECRET_TAP_WINDOW_MS ? 1 : current.count + 1;
-
-    secretTapRef.current = {
-      count: nextCount,
-      firstAt: nextCount === 1 ? now : current.firstAt,
-    };
-
-    if (nextCount >= SECRET_TAPS_REQUIRED) {
-      secretTapRef.current = { count: 0, firstAt: 0 };
-      setDetailsOpen(false);
-      setViewMode((currentMode) => (currentMode === "deleted" ? "calendar" : "deleted"));
-    }
   }
 
   async function login(event) {
@@ -1067,36 +1120,41 @@ export default function CalendarPage() {
 
   return (
     <>
-      <div className="cosmic-backdrop" aria-hidden="true" />
-      <main className={`app-shell${detailsOpen ? "" : " details-collapsed"}`}>
+      <div className={`cosmic-backdrop${account.id === "kristina" ? " kristina-theme" : ""}`} aria-hidden="true" />
+      <main
+        className={`app-shell${detailsOpen ? "" : " details-collapsed"}${account.id === "kristina" ? " kristina-theme" : ""}`}
+      >
         <section
           className="calendar-panel"
           ref={calendarPanelRef}
           aria-label="Календарь"
           onTouchStart={(event) => {
+            if (viewMode !== "calendar") {
+              swipeStartX.current = null;
+              swipeStartY.current = null;
+              return;
+            }
+
             swipeStartX.current = event.touches[0]?.clientX ?? null;
             swipeStartY.current = event.touches[0]?.clientY ?? null;
           }}
           onTouchEnd={(event) => {
+            if (viewMode !== "calendar") return;
             handleSwipeEnd(event.changedTouches[0]?.clientX ?? 0, event.changedTouches[0]?.clientY ?? 0);
           }}
           onTouchCancel={() => {
             swipeStartX.current = null;
             swipeStartY.current = null;
           }}
-          onWheel={handleCalendarWheel}
+          onWheel={(event) => {
+            if (viewMode === "calendar") handleCalendarWheel(event);
+          }}
         >
           <header className="topbar">
             <div className="brand">
-              <button
-                className="brand-icon"
-                type="button"
-                onClick={handleSecretIconTap}
-                aria-label="Орбита дел"
-                title="Орбита дел"
-              >
+              <span className="brand-icon" aria-hidden="true">
                 <CalendarDays size={22} strokeWidth={2.2} />
-              </button>
+              </span>
               <div>
                 <h1>Орбита дел</h1>
                 <p>Семейный календарь</p>
@@ -1107,6 +1165,15 @@ export default function CalendarPage() {
                 <UserRound size={15} />
                 {account.name}
               </span>
+              <button
+                className={`icon-button subtle${viewMode === "deleted" ? " active-control" : ""}`}
+                type="button"
+                onClick={toggleDeletedView}
+                aria-label="Удалённые дела"
+                title="Удалённые дела"
+              >
+                <Archive size={17} />
+              </button>
               <button className="icon-button subtle" type="button" onClick={logout} aria-label="Выйти" title="Выйти">
                 <LogOut size={17} />
               </button>
@@ -1125,7 +1192,7 @@ export default function CalendarPage() {
                   <button
                     className="icon-button subtle"
                     type="button"
-                    onClick={() => setViewMode("calendar")}
+                    onClick={toggleDeletedView}
                     aria-label="Вернуться к календарю"
                     title="Вернуться к календарю"
                   >
@@ -1230,13 +1297,45 @@ export default function CalendarPage() {
         </section>
 
         {viewMode === "calendar" && detailsOpen ? (
-          <aside className={`details-panel${formOpen ? " form-open" : ""}`} aria-label="Дела на выбранный день">
+          <aside
+            className={`details-panel${formOpen ? " form-open" : ""}${dayMotion ? ` ${dayMotion}` : ""}`}
+            ref={detailsPanelRef}
+            aria-label="Дела на выбранный день"
+            onTouchStart={handleDayTouchStart}
+            onTouchEnd={(event) => {
+              handleDaySwipeEnd(event.changedTouches[0]?.clientX ?? 0, event.changedTouches[0]?.clientY ?? 0);
+            }}
+            onTouchCancel={() => {
+              daySwipeStartX.current = null;
+              daySwipeStartY.current = null;
+            }}
+          >
             <div className="details-header">
               <div>
                 <p>Выбранный день</p>
                 <h2>{formatDisplayDate(selectedDate)}</h2>
               </div>
               <div className="details-header-actions">
+                <div className="day-nav-group" aria-label="Навигация по дням">
+                  <button
+                    className="icon-button subtle"
+                    type="button"
+                    onClick={() => moveSelectedDay(-1)}
+                    aria-label="Предыдущий день"
+                    title="Предыдущий день"
+                  >
+                    <ChevronLeft size={18} />
+                  </button>
+                  <button
+                    className="icon-button subtle"
+                    type="button"
+                    onClick={() => moveSelectedDay(1)}
+                    aria-label="Следующий день"
+                    title="Следующий день"
+                  >
+                    <ChevronRight size={18} />
+                  </button>
+                </div>
                 <span className="count-badge">{selectedEvents.length}</span>
                 <button className="icon-button subtle" type="button" onClick={closeDetails} aria-label="Скрыть детали дня" title="Скрыть детали дня">
                   <PanelRightClose size={18} />
