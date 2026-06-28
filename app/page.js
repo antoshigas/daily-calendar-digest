@@ -495,6 +495,7 @@ export default function CalendarPage() {
   const [monthMotion, setMonthMotion] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [deletingId, setDeletingId] = useState(null);
@@ -719,6 +720,7 @@ export default function CalendarPage() {
     );
     setSelectedDate(dateKey);
     setDetailsOpen(true);
+    setFormOpen(false);
     setDeletingId(null);
     if (!editingId) {
       setForm((current) => emptyForm(dateKey, current.ownerId));
@@ -728,12 +730,14 @@ export default function CalendarPage() {
   function closeDetails() {
     setDetailsOpen(false);
     setEditingId(null);
+    setFormOpen(false);
     setDeletingId(null);
   }
 
   function jumpToday() {
     selectDate(todayKey, { toggleSame: false });
     setEditingId(null);
+    setFormOpen(false);
   }
 
   function startEdit(event) {
@@ -745,6 +749,7 @@ export default function CalendarPage() {
     setEditingId(event.id);
     setDeletingId(null);
     selectDate(event.date, { toggleSame: false });
+    setFormOpen(true);
     setForm({
       date: event.date,
       time: event.time || "",
@@ -757,7 +762,15 @@ export default function CalendarPage() {
 
   function resetForm(date = selectedDate) {
     setEditingId(null);
+    setFormOpen(false);
     setForm((current) => emptyForm(date, current.ownerId));
+  }
+
+  function openCreateForm() {
+    setEditingId(null);
+    setDeletingId(null);
+    setForm((current) => emptyForm(selectedDate, current.ownerId));
+    setFormOpen(true);
   }
 
   function handleSwipeEnd(clientX, clientY) {
@@ -822,7 +835,7 @@ export default function CalendarPage() {
   async function login(event) {
     event.preventDefault();
     setBusy(true);
-    setFeedback("Вхожу");
+    setFeedback("");
 
     try {
       const response = await fetch("/api/auth/login", {
@@ -841,7 +854,7 @@ export default function CalendarPage() {
       setLoginForm((current) => ({ ...current, password: "" }));
       eventsLoadedRef.current = false;
       await loadEvents({ quiet: true });
-      setFeedback(`Вошли как ${payload.account.name}`);
+      setFeedback("");
     } catch (error) {
       setFeedback(error.message);
     } finally {
@@ -904,6 +917,7 @@ export default function CalendarPage() {
       setDeletedEvents(payload.deletedEvents || deletedEvents);
       resetForm(form.date);
       selectDate(form.date, { toggleSame: false });
+      setFormOpen(false);
       setFeedback("Сохранено");
     } catch (error) {
       setFeedback(error.message);
@@ -1216,7 +1230,7 @@ export default function CalendarPage() {
         </section>
 
         {viewMode === "calendar" && detailsOpen ? (
-          <aside className="details-panel" aria-label="Дела на выбранный день">
+          <aside className={`details-panel${formOpen ? " form-open" : ""}`} aria-label="Дела на выбранный день">
             <div className="details-header">
               <div>
                 <p>Выбранный день</p>
@@ -1306,14 +1320,13 @@ export default function CalendarPage() {
             </div>
 
             {selectedWritable ? (
+              formOpen ? (
               <form className="event-form" onSubmit={saveEvent}>
                 <div className="form-heading">
                   <h2>{editingId ? "Редактировать" : "Добавить"}</h2>
-                  {editingId ? (
-                    <button className="icon-button subtle" type="button" onClick={() => resetForm()} aria-label="Отменить">
-                      <X size={18} />
-                    </button>
-                  ) : null}
+                  <button className="icon-button subtle" type="button" onClick={() => resetForm()} aria-label="Скрыть форму">
+                    <X size={18} />
+                  </button>
                 </div>
 
                 <label>
@@ -1412,6 +1425,14 @@ export default function CalendarPage() {
                   {editingId ? "Сохранить" : "Добавить"}
                 </button>
               </form>
+              ) : (
+                <div className="add-event-panel">
+                  <button className="add-event-button" type="button" onClick={openCreateForm}>
+                    <Plus size={18} />
+                    Добавить дело
+                  </button>
+                </div>
+              )
             ) : (
               <div className="readonly-note">
                 <h2>Только просмотр</h2>
