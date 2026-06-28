@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "check": "node --check app/api/cron/morning/route.js && node --check app/api/events/route.js"
+    "check": "node --check app/api/auth/login/route.js && node --check app/api/auth/logout/route.js && node --check app/api/auth/me/route.js && node --check app/api/cron/morning/route.js && node --check app/api/events/route.js && node --check lib/auth.js && node --check lib/calendar.js && node --check lib/storage.js"
   },
   "dependencies": {
     "lucide-react": "latest",

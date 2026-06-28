@@ -6,15 +6,22 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  EyeOff,
+  History,
+  LogIn,
+  LogOut,
   PanelRightClose,
   PanelRightOpen,
   Pencil,
   Plus,
+  ShieldCheck,
   Trash2,
+  UserRound,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ACCOUNTS,
   DEFAULT_OWNER_ID,
   NO_TIME_LABEL,
   PEOPLE,
@@ -49,13 +56,15 @@ const SWIPE_INTENT_RATIO = 1.15;
 const WHEEL_MONTH_THRESHOLD = 80;
 const WHEEL_MONTH_COOLDOWN_MS = 650;
 const FOCUS_SCROLL_DELAY_MS = 120;
+const SECRET_TAPS_REQUIRED = 5;
+const SECRET_TAP_WINDOW_MS = 1700;
 
 function emptyForm(date, ownerId = DEFAULT_OWNER_ID) {
   return {
     date,
     time: "",
     ownerId,
-    ownerPassword: "",
+    private: false,
     title: "",
     note: "",
   };
@@ -71,7 +80,17 @@ function sortEvents(events) {
 
 function eventsSignature(events) {
   return JSON.stringify(
-    events.map((event) => [event.id, event.date, event.time || "", event.ownerId || "", event.title, event.note || ""]),
+    events.map((event) => [
+      event.id,
+      event.date,
+      event.time || "",
+      event.ownerId || "",
+      event.private ? "private" : "public",
+      event.title,
+      event.note || "",
+      event.updatedAt || "",
+      event.deletedAt || "",
+    ]),
   );
 }
 
@@ -88,6 +107,64 @@ function buildSyncFeedback(previousEvents, nextEvents) {
   if (removed.length === 1) return `Удалено: ${removed[0].title}`;
   if (removed.length > 1) return `Удалено дел: ${removed.length}`;
   return "Дела обновлены";
+}
+
+function hasRealHistory(event) {
+  return (event.history || []).some((entry) => entry.type === "updated");
+}
+
+function formatAuditDate(value) {
+  if (!value) return "";
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function getActorName(actorId) {
+  return PEOPLE.find((person) => person.id === actorId)?.name || "Кто-то";
+}
+
+function groupDeletedByDate(deletedEvents) {
+  return deletedEvents.reduce((groups, event) => {
+    groups[event.date] ||= [];
+    groups[event.date].push(event);
+    return groups;
+  }, {});
+}
+
+function HistoryBlock({ event, compact = false }) {
+  const entries = event.history || [];
+  if (entries.length === 0) return null;
+
+  return (
+    <div className={`history-block${compact ? " compact" : ""}`}>
+      {entries.map((entry) => (
+        <div className="history-entry" key={entry.id}>
+          <div className="history-entry-head">
+            <span>{getActorName(entry.actorId)}</span>
+            <span>{formatAuditDate(entry.at)}</span>
+          </div>
+          <p>{entry.summary || (entry.type === "updated" ? "Изменение" : "Событие")}</p>
+          {Object.keys(entry.changes || {}).length > 0 ? (
+            <ul>
+              {Object.entries(entry.changes).map(([field, change]) => (
+                <li key={field}>
+                  <span>{change.label}</span>
+                  <strong>
+                    {change.before} → {change.after}
+                  </strong>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function clockPoint(value, total, radius) {
@@ -407,16 +484,24 @@ export default function CalendarPage() {
   const [viewDate, setViewDate] = useState(() => keyToDate(initialTodayKey));
   const [selectedDate, setSelectedDate] = useState(initialTodayKey);
   const [events, setEvents] = useState([]);
+  const [deletedEvents, setDeletedEvents] = useState([]);
   const [form, setForm] = useState(emptyForm(initialTodayKey));
-  const [ownerPasswordStatus, setOwnerPasswordStatus] = useState({});
+  const [account, setAccount] = useState(null);
+  const [accounts, setAccounts] = useState(ACCOUNTS);
+  const [loginForm, setLoginForm] = useState({ accountId: ACCOUNTS[0]?.id || DEFAULT_OWNER_ID, password: "" });
+  const [authReady, setAuthReady] = useState(false);
+  const [viewMode, setViewMode] = useState("calendar");
+  const [expandedHistoryId, setExpandedHistoryId] = useState(null);
+  const [monthMotion, setMonthMotion] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [deletingId, setDeletingId] = useState(null);
-  const [deletePassword, setDeletePassword] = useState("");
   const eventsRef = useRef([]);
   const eventsLoadedRef = useRef(false);
+  const monthMotionTimerRef = useRef(null);
+  const secretTapRef = useRef({ count: 0, firstAt: 0 });
   const wheelMonthRef = useRef({ lastAt: 0 });
 
   const dateContext = useMemo(
@@ -428,39 +513,66 @@ export default function CalendarPage() {
     [todayKey, todayLocked, todayAfterDigest],
   );
 
+  async function loadAuth() {
+    const response = await fetch("/api/auth/me", { cache: "no-store" });
+    const payload = await response.json();
+
+    if (!response.ok) {
+      throw new Error(payload.error || "Не удалось проверить вход");
+    }
+
+    setAccount(payload.account || null);
+    setAccounts(payload.accounts || ACCOUNTS);
+    setAuthReady(true);
+
+    if (payload.account) {
+      await loadEvents({ quiet: true });
+    }
+  }
+
   async function loadEvents({ quiet = false } = {}) {
     const response = await fetch("/api/events", { cache: "no-store" });
     const payload = await response.json();
 
     if (!response.ok) {
+      if (response.status === 401) {
+        setAccount(null);
+        setAuthReady(true);
+      }
       throw new Error(payload.error || "Не удалось загрузить дела");
     }
 
     const nextEvents = sortEvents(payload.events || []);
+    const nextDeletedEvents = payload.deletedEvents || [];
     if (quiet && eventsLoadedRef.current) {
       const syncFeedback = buildSyncFeedback(eventsRef.current, nextEvents);
       if (syncFeedback) setFeedback(syncFeedback);
     }
     eventsRef.current = nextEvents;
     eventsLoadedRef.current = true;
+    setAccount(payload.account || account);
+    setAccounts(payload.accounts || accounts);
     setEvents(nextEvents);
+    setDeletedEvents(nextDeletedEvents);
     setTodayKey(payload.todayKey || getTodayKey());
     setTodayLocked(Boolean(payload.todayLocked));
     setTodayAfterDigest(Boolean(payload.todayAfterDigest));
-    setOwnerPasswordStatus(payload.ownerPasswordStatus || {});
   }
 
   useEffect(() => {
-    loadEvents({ quiet: true }).catch((error) => setFeedback(error.message));
+    loadAuth().catch((error) => {
+      setAuthReady(true);
+      setFeedback(error.message);
+    });
   }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      loadEvents({ quiet: true }).catch((error) => setFeedback(error.message));
+      if (account) loadEvents({ quiet: true }).catch((error) => setFeedback(error.message));
     }, AUTO_REFRESH_MS);
 
     return () => window.clearInterval(timer);
-  }, []);
+  }, [account]);
 
   useEffect(() => {
     if (!feedback) return undefined;
@@ -539,7 +651,29 @@ export default function CalendarPage() {
     return () => document.removeEventListener("focusin", handleFocusIn);
   }, []);
 
+  useEffect(() => {
+    function resetSecretTapOnOutsideClick(event) {
+      if (event.target instanceof Element && event.target.closest(".brand-icon")) return;
+      secretTapRef.current = { count: 0, firstAt: 0 };
+    }
+
+    document.addEventListener("pointerdown", resetSecretTapOnOutsideClick, true);
+    return () => document.removeEventListener("pointerdown", resetSecretTapOnOutsideClick, true);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (monthMotionTimerRef.current) {
+        window.clearTimeout(monthMotionTimerRef.current);
+      }
+    };
+  }, []);
+
+  const previousViewDate = useMemo(() => new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1), [viewDate]);
+  const nextViewDate = useMemo(() => new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1), [viewDate]);
+  const previousMonthCells = useMemo(() => buildMonthCells(previousViewDate), [previousViewDate]);
   const monthCells = useMemo(() => buildMonthCells(viewDate), [viewDate]);
+  const nextMonthCells = useMemo(() => buildMonthCells(nextViewDate), [nextViewDate]);
   const eventsByDate = useMemo(() => {
     return events.reduce((groups, event) => {
       groups[event.date] ||= [];
@@ -548,6 +682,8 @@ export default function CalendarPage() {
     }, {});
   }, [events]);
   const selectedEvents = eventsByDate[selectedDate] || [];
+  const deletedByDate = useMemo(() => groupDeletedByDate(deletedEvents), [deletedEvents]);
+  const canUsePrivate = account?.id === "kristina";
   const selectedWritable = isWritableDateKey(selectedDate, dateContext);
   const selectedLockReason = getDateLockReason(selectedDate, dateContext);
 
@@ -555,7 +691,6 @@ export default function CalendarPage() {
     if (!editingId) {
       setForm((current) => ({
         ...emptyForm(selectedDate, current.ownerId),
-        ownerPassword: current.ownerPassword,
         title: current.title,
         note: current.note,
       }));
@@ -563,7 +698,13 @@ export default function CalendarPage() {
   }, [selectedDate, editingId]);
 
   function moveMonth(offset) {
+    if (monthMotionTimerRef.current) {
+      window.clearTimeout(monthMotionTimerRef.current);
+    }
+
+    setMonthMotion(offset > 0 ? "slide-next" : "slide-previous");
     setViewDate((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
+    monthMotionTimerRef.current = window.setTimeout(() => setMonthMotion(""), 360);
   }
 
   function selectDate(dateKey, { toggleSame = true } = {}) {
@@ -579,7 +720,6 @@ export default function CalendarPage() {
     setSelectedDate(dateKey);
     setDetailsOpen(true);
     setDeletingId(null);
-    setDeletePassword("");
     if (!editingId) {
       setForm((current) => emptyForm(dateKey, current.ownerId));
     }
@@ -589,7 +729,6 @@ export default function CalendarPage() {
     setDetailsOpen(false);
     setEditingId(null);
     setDeletingId(null);
-    setDeletePassword("");
   }
 
   function jumpToday() {
@@ -605,13 +744,12 @@ export default function CalendarPage() {
 
     setEditingId(event.id);
     setDeletingId(null);
-    setDeletePassword("");
     selectDate(event.date, { toggleSame: false });
     setForm({
       date: event.date,
       time: event.time || "",
       ownerId: event.ownerId || DEFAULT_OWNER_ID,
-      ownerPassword: "",
+      private: Boolean(event.private),
       title: event.title,
       note: event.note || "",
     });
@@ -664,6 +802,73 @@ export default function CalendarPage() {
     moveMonth(event.deltaY > 0 ? 1 : -1);
   }
 
+  function handleSecretIconTap() {
+    const now = Date.now();
+    const current = secretTapRef.current;
+    const nextCount = now - current.firstAt > SECRET_TAP_WINDOW_MS ? 1 : current.count + 1;
+
+    secretTapRef.current = {
+      count: nextCount,
+      firstAt: nextCount === 1 ? now : current.firstAt,
+    };
+
+    if (nextCount >= SECRET_TAPS_REQUIRED) {
+      secretTapRef.current = { count: 0, firstAt: 0 };
+      setDetailsOpen(false);
+      setViewMode((currentMode) => (currentMode === "deleted" ? "calendar" : "deleted"));
+    }
+  }
+
+  async function login(event) {
+    event.preventDefault();
+    setBusy(true);
+    setFeedback("Вхожу");
+
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(loginForm),
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Не удалось войти");
+      }
+
+      setAccount(payload.account);
+      setAccounts(payload.accounts || ACCOUNTS);
+      setLoginForm((current) => ({ ...current, password: "" }));
+      eventsLoadedRef.current = false;
+      await loadEvents({ quiet: true });
+      setFeedback(`Вошли как ${payload.account.name}`);
+    } catch (error) {
+      setFeedback(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function logout() {
+    setBusy(true);
+
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+      setAccount(null);
+      setEvents([]);
+      setDeletedEvents([]);
+      eventsRef.current = [];
+      eventsLoadedRef.current = false;
+      setDetailsOpen(false);
+      setViewMode("calendar");
+      setFeedback("Вы вышли");
+    } catch (error) {
+      setFeedback(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveEvent(event) {
     event.preventDefault();
 
@@ -696,7 +901,7 @@ export default function CalendarPage() {
       eventsRef.current = nextEvents;
       eventsLoadedRef.current = true;
       setEvents(nextEvents);
-      setOwnerPasswordStatus((current) => ({ ...current, [form.ownerId]: true }));
+      setDeletedEvents(payload.deletedEvents || deletedEvents);
       resetForm(form.date);
       selectDate(form.date, { toggleSame: false });
       setFeedback("Сохранено");
@@ -723,7 +928,6 @@ export default function CalendarPage() {
       const response = await fetch(`/api/events?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ownerPassword: deletePassword }),
       });
       const payload = await response.json();
 
@@ -735,15 +939,116 @@ export default function CalendarPage() {
       eventsRef.current = nextEvents;
       eventsLoadedRef.current = true;
       setEvents(nextEvents);
+      setDeletedEvents(payload.deletedEvents || deletedEvents);
       if (editingId === id) resetForm();
       setDeletingId(null);
-      setDeletePassword("");
       setFeedback("Удалено");
     } catch (error) {
       setFeedback(error.message);
     } finally {
       setBusy(false);
     }
+  }
+
+  function renderMonthGrid(cells, gridDate, { inert = false } = {}) {
+    return (
+      <div className="month-grid" aria-hidden={inert ? "true" : undefined}>
+        {cells.map((cell) => {
+          const dayEvents = eventsByDate[cell.key] || [];
+          const active = !inert && detailsOpen && selectedDate === cell.key;
+          const muted = !isSameMonth(cell.date, gridDate);
+          const writable = isWritableDateKey(cell.key, dateContext);
+
+          return (
+            <button
+              className={`day-cell${active ? " active" : ""}${muted ? " muted" : ""}${
+                cell.key === todayKey ? " today" : ""
+              }${!writable ? " closed" : ""}`}
+              disabled={inert}
+              key={cell.key}
+              tabIndex={inert ? -1 : 0}
+              type="button"
+              onClick={() => selectDate(cell.key)}
+            >
+              <span className="day-number">{cell.date.getDate()}</span>
+              <span className="day-events">
+                {dayEvents.slice(0, 2).map((item) => (
+                  <span className="event-chip" key={item.id}>
+                    <span>{item.time || NO_TIME_LABEL}</span>
+                    {getPersonName(item.ownerId)} · {item.title}
+                  </span>
+                ))}
+                {dayEvents.length > 2 ? <span className="more-chip">+{dayEvents.length - 2}</span> : null}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if (!authReady) {
+    return (
+      <>
+        <div className="cosmic-backdrop" aria-hidden="true" />
+        <main className="auth-shell">
+          <div className="auth-card">
+            <ShieldCheck size={28} />
+            <h1>Орбита дел</h1>
+            <p>Проверяю вход</p>
+          </div>
+        </main>
+      </>
+    );
+  }
+
+  if (!account) {
+    return (
+      <>
+        <div className="cosmic-backdrop" aria-hidden="true" />
+        <main className="auth-shell">
+          <form className="auth-card" onSubmit={login}>
+            <ShieldCheck size={30} />
+            <div>
+              <h1>Орбита дел</h1>
+              <p>Существующий аккаунт</p>
+            </div>
+
+            <label>
+              Аккаунт
+              <select
+                value={loginForm.accountId}
+                onChange={(event) => setLoginForm((current) => ({ ...current, accountId: event.target.value }))}
+              >
+                {accounts.map((person) => (
+                  <option key={person.id} value={person.id}>
+                    {person.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              Пароль
+              <input
+                type="password"
+                value={loginForm.password}
+                onChange={(event) => setLoginForm((current) => ({ ...current, password: event.target.value }))}
+                autoComplete="current-password"
+                required
+              />
+            </label>
+
+            <button className="save-button" type="submit" disabled={busy}>
+              <LogIn size={18} />
+              Войти
+            </button>
+
+            {feedback ? <div className="auth-feedback">{feedback}</div> : null}
+          </form>
+        </main>
+      </>
+    );
   }
 
   return (
@@ -769,16 +1074,81 @@ export default function CalendarPage() {
         >
           <header className="topbar">
             <div className="brand">
-              <span className="brand-icon" aria-hidden="true">
+              <button
+                className="brand-icon"
+                type="button"
+                onClick={handleSecretIconTap}
+                aria-label="Орбита дел"
+                title="Орбита дел"
+              >
                 <CalendarDays size={22} strokeWidth={2.2} />
-              </span>
+              </button>
               <div>
                 <h1>Орбита дел</h1>
                 <p>Семейный календарь</p>
               </div>
             </div>
+            <div className="account-bar">
+              <span className={`account-pill owner-${account.id}`}>
+                <UserRound size={15} />
+                {account.name}
+              </span>
+              <button className="icon-button subtle" type="button" onClick={logout} aria-label="Выйти" title="Выйти">
+                <LogOut size={17} />
+              </button>
+            </div>
           </header>
 
+          {viewMode === "deleted" ? (
+            <section className="deleted-view" aria-label="Удалённые дела">
+              <div className="deleted-head">
+                <div>
+                  <p>Архив</p>
+                  <h2>Удалённые дела</h2>
+                </div>
+                <div className="details-header-actions">
+                  <span className="count-badge">{deletedEvents.length}</span>
+                  <button
+                    className="icon-button subtle"
+                    type="button"
+                    onClick={() => setViewMode("calendar")}
+                    aria-label="Вернуться к календарю"
+                    title="Вернуться к календарю"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+              </div>
+
+              {deletedEvents.length === 0 ? <p className="empty-state">Удалённых дел нет</p> : null}
+
+              <div className="deleted-list">
+                {Object.entries(deletedByDate).map(([dateKey, items]) => (
+                  <section className="deleted-date-group" key={dateKey}>
+                    <h3>{formatDisplayDate(dateKey)}</h3>
+                    {items.map((event) => (
+                      <article className="event-row deleted-row" key={`${event.id}-${event.deletedAt}`}>
+                        <div className="event-time">{event.time || NO_TIME_LABEL}</div>
+                        <div className="event-content">
+                          <span className={`owner-pill owner-${event.ownerId || DEFAULT_OWNER_ID}`}>
+                            {getPersonName(event.ownerId)}
+                          </span>
+                          {event.private ? <span className="private-pill">частное</span> : null}
+                          <h3>{event.title}</h3>
+                          {event.note ? <p>{event.note}</p> : null}
+                          <p>
+                            Удалил(а): {getActorName(event.deletedBy)} · {formatAuditDate(event.deletedAt)}
+                          </p>
+                          <HistoryBlock event={event} />
+                        </div>
+                      </article>
+                    ))}
+                  </section>
+                ))}
+              </div>
+            </section>
+          ) : (
+            <>
           <div className="month-title-row">
             <div className="month-heading">
               <button
@@ -834,39 +1204,18 @@ export default function CalendarPage() {
             ))}
           </div>
 
-          <div className="month-grid">
-            {monthCells.map((cell) => {
-              const dayEvents = eventsByDate[cell.key] || [];
-              const active = detailsOpen && selectedDate === cell.key;
-              const muted = !isSameMonth(cell.date, viewDate);
-              const writable = isWritableDateKey(cell.key, dateContext);
-
-              return (
-                <button
-                  className={`day-cell${active ? " active" : ""}${muted ? " muted" : ""}${
-                    cell.key === todayKey ? " today" : ""
-                  }${!writable ? " closed" : ""}`}
-                  key={cell.key}
-                  type="button"
-                  onClick={() => selectDate(cell.key)}
-                >
-                  <span className="day-number">{cell.date.getDate()}</span>
-                  <span className="day-events">
-                    {dayEvents.slice(0, 2).map((event) => (
-                      <span className="event-chip" key={event.id}>
-                        <span>{event.time || NO_TIME_LABEL}</span>
-                        {getPersonName(event.ownerId)} · {event.title}
-                      </span>
-                    ))}
-                    {dayEvents.length > 2 ? <span className="more-chip">+{dayEvents.length - 2}</span> : null}
-                  </span>
-                </button>
-              );
-            })}
+          <div className="month-viewport">
+            <div className={`month-strip ${monthMotion}`}>
+              {renderMonthGrid(previousMonthCells, previousViewDate, { inert: true })}
+              {renderMonthGrid(monthCells, viewDate)}
+              {renderMonthGrid(nextMonthCells, nextViewDate, { inert: true })}
+            </div>
           </div>
+            </>
+          )}
         </section>
 
-        {detailsOpen ? (
+        {viewMode === "calendar" && detailsOpen ? (
           <aside className="details-panel" aria-label="Дела на выбранный день">
             <div className="details-header">
               <div>
@@ -895,21 +1244,28 @@ export default function CalendarPage() {
                       <span className={`owner-pill owner-${event.ownerId || DEFAULT_OWNER_ID}`}>
                         {getPersonName(event.ownerId)}
                       </span>
+                      {event.private ? <span className="private-pill">частное</span> : null}
                       <h3>{event.title}</h3>
                       {event.note ? <p>{event.note}</p> : null}
+                      {hasRealHistory(event) ? (
+                        <>
+                          <button
+                            className="history-toggle"
+                            type="button"
+                            onClick={() =>
+                              setExpandedHistoryId((current) => (current === event.id ? null : event.id))
+                            }
+                          >
+                            <History size={15} />
+                            История
+                          </button>
+                          {expandedHistoryId === event.id ? <HistoryBlock event={event} compact /> : null}
+                        </>
+                      ) : null}
 
                       {deletingId === event.id ? (
                         <form className="delete-form" onSubmit={(formEvent) => deleteEvent(formEvent, event.id)}>
-                          <label>
-                            Пароль для удаления
-                            <input
-                              type="password"
-                              value={deletePassword}
-                              onChange={(inputEvent) => setDeletePassword(inputEvent.target.value)}
-                              minLength={4}
-                              required
-                            />
-                          </label>
+                          <p>Удалить это дело? Оно уйдёт в список удалённых вместе с историей.</p>
                           <div className="delete-actions">
                             <button className="delete-confirm-button" type="submit" disabled={busy}>
                               Удалить
@@ -919,7 +1275,6 @@ export default function CalendarPage() {
                               type="button"
                               onClick={() => {
                                 setDeletingId(null);
-                                setDeletePassword("");
                               }}
                             >
                               Отмена
@@ -938,7 +1293,6 @@ export default function CalendarPage() {
                           type="button"
                           onClick={() => {
                             setDeletingId(event.id);
-                            setDeletePassword("");
                           }}
                           aria-label="Удалить"
                         >
@@ -990,12 +1344,17 @@ export default function CalendarPage() {
                     {PEOPLE.map((person) => (
                       <button
                         className={`owner-option owner-${person.id}${form.ownerId === person.id ? " selected" : ""}`}
-                        disabled={Boolean(editingId)}
                         key={person.id}
                         type="button"
                         role="radio"
                         aria-checked={form.ownerId === person.id}
-                        onClick={() => setForm((current) => ({ ...current, ownerId: person.id, ownerPassword: "" }))}
+                        onClick={() =>
+                          setForm((current) => ({
+                            ...current,
+                            ownerId: person.id,
+                            private: person.id === "kristina" ? current.private : false,
+                          }))
+                        }
                       >
                         {person.name}
                       </button>
@@ -1003,17 +1362,21 @@ export default function CalendarPage() {
                   </div>
                 </div>
 
-                <label>
-                  Пароль
-                  <input
-                    type="password"
-                    value={form.ownerPassword}
-                    onChange={(event) => setForm((current) => ({ ...current, ownerPassword: event.target.value }))}
-                    minLength={4}
-                    required
-                    placeholder={ownerPasswordStatus[form.ownerId] ? "Пароль человека" : "Придумайте первый пароль"}
-                  />
-                </label>
+                {canUsePrivate && form.ownerId === "kristina" ? (
+                  <label className="private-toggle">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(form.private)}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, private: event.target.checked }))
+                      }
+                    />
+                    <span>
+                      <EyeOff size={17} />
+                      Частное дело
+                    </span>
+                  </label>
+                ) : null}
 
                 <div className="form-field">
                   <span>Время</span>

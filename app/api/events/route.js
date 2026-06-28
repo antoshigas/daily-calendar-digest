@@ -1,56 +1,47 @@
-import { pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
+import { getPublicAccounts, requireSessionAccount } from "../../../lib/auth.js";
 import {
   DEFAULT_OWNER_ID,
   PEOPLE,
+  filterVisibleEvents,
   getBerlinDateKey,
   getDateLockReason,
+  getPersonName,
   isTodayAfterDigestTime,
   isValidOwnerId,
   isWritableDateKey,
   normalizeOwnerId,
+  sortEvents,
 } from "../../../lib/calendar.js";
 import {
   hasDigestRun,
+  readDeletedEvents,
   readEvents,
-  readOwnerPasswords,
+  writeDeletedEvents,
   writeEvents,
-  writeOwnerPasswords,
 } from "../../../lib/storage.js";
 
 export const dynamic = "force-dynamic";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^$|^([01]\d|2[0-3]):[0-5]\d$/;
-const PASSWORD_MIN_LENGTH = 4;
-const PASSWORD_ITERATIONS = 120000;
+const TRACKED_FIELDS = ["date", "time", "ownerId", "title", "note", "private"];
 
 function jsonError(message, status = 400) {
   return Response.json({ ok: false, error: message }, { status });
 }
 
-function cleanPassword(input) {
-  return typeof input.ownerPassword === "string" ? input.ownerPassword : "";
+function getErrorStatus(error) {
+  return Number.isInteger(error?.status) ? error.status : 400;
 }
 
-function hashPassword(password, salt = randomBytes(16).toString("hex")) {
-  const hash = pbkdf2Sync(password, salt, PASSWORD_ITERATIONS, 32, "sha256").toString("hex");
-
-  return { salt, hash, createdAt: new Date().toISOString() };
-}
-
-function verifyPassword(password, record) {
-  const expected = Buffer.from(record.hash, "hex");
-  const actual = Buffer.from(hashPassword(password, record.salt).hash, "hex");
-
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
-}
-
-function cleanEvent(input, id) {
+function cleanEvent(input, id, account, previousEvent = null) {
   const date = typeof input.date === "string" ? input.date : "";
   const time = typeof input.time === "string" ? input.time : "";
   const ownerId = normalizeOwnerId(typeof input.ownerId === "string" ? input.ownerId : DEFAULT_OWNER_ID);
   const title = typeof input.title === "string" ? input.title.trim() : "";
   const note = typeof input.note === "string" ? input.note.trim() : "";
+  const privateRequested = Boolean(input.private);
 
   if (!DATE_PATTERN.test(date)) {
     throw new Error("Неверная дата");
@@ -68,6 +59,10 @@ function cleanEvent(input, id) {
     throw new Error("Введите дело");
   }
 
+  if (privateRequested && (account.id !== "kristina" || ownerId !== "kristina")) {
+    throw new Error("Частные дела доступны только аккаунту Кристины и только для Кристины");
+  }
+
   return {
     id,
     date,
@@ -75,6 +70,12 @@ function cleanEvent(input, id) {
     ownerId,
     title: title.slice(0, 120),
     note: note.slice(0, 300),
+    private: ownerId === "kristina" && account.id === "kristina" && privateRequested,
+    createdBy: previousEvent?.createdBy || account.id,
+    createdAt: previousEvent?.createdAt || new Date().toISOString(),
+    updatedBy: account.id,
+    updatedAt: new Date().toISOString(),
+    history: previousEvent?.history || [],
   };
 }
 
@@ -92,76 +93,133 @@ function assertWritableDate(dateKey, context) {
   }
 }
 
-async function authorizeOwner(ownerId, password, { allowCreate = false } = {}) {
-  if (password.trim().length < PASSWORD_MIN_LENGTH) {
-    throw new Error("Пароль должен быть минимум 4 символа");
-  }
-
-  const passwords = await readOwnerPasswords();
-  const record = passwords[ownerId];
-
-  if (!record) {
-    if (!allowCreate) {
-      throw new Error("Сначала создайте первое дело с паролем этого человека");
-    }
-
-    const nextPasswords = {
-      ...passwords,
-      [ownerId]: hashPassword(password),
-    };
-    await writeOwnerPasswords(nextPasswords);
-    return { created: true };
-  }
-
-  if (!verifyPassword(password, record)) {
-    throw new Error("Неверный пароль");
-  }
-
-  return { created: false };
+function serializeEvents(events, account) {
+  return sortEvents(filterVisibleEvents(events, account.id));
 }
 
-export async function GET() {
-  const todayKey = getBerlinDateKey();
-  const todayAfterDigest = isTodayAfterDigestTime();
-  const [events, todayLocked, ownerPasswords] = await Promise.all([
-    readEvents(),
-    hasDigestRun(todayKey),
-    readOwnerPasswords(),
-  ]);
-  const ownerPasswordStatus = Object.fromEntries(
-    PEOPLE.map((person) => [person.id, Boolean(ownerPasswords[person.id])]),
+function serializeDeletedEvents(events, account) {
+  return filterVisibleEvents(events, account.id).sort(
+    (left, right) => right.deletedAt.localeCompare(left.deletedAt) || left.date.localeCompare(right.date),
   );
+}
 
-  return Response.json({
-    ok: true,
-    events,
-    todayKey,
-    todayLocked,
-    todayAfterDigest,
-    people: PEOPLE,
-    ownerPasswordStatus,
-  });
+function fieldLabel(field) {
+  return {
+    date: "дата",
+    time: "время",
+    ownerId: "человек",
+    title: "дело",
+    note: "заметка",
+    private: "частность",
+  }[field];
+}
+
+function displayFieldValue(field, value) {
+  if (field === "ownerId") return getPersonName(value);
+  if (field === "private") return value ? "частное" : "обычное";
+  if (field === "time") return value || "без времени";
+  return value || "пусто";
+}
+
+function buildChanges(previousEvent, nextEvent) {
+  return Object.fromEntries(
+    TRACKED_FIELDS.filter((field) => (previousEvent[field] || "") !== (nextEvent[field] || "")).map((field) => [
+      field,
+      {
+        label: fieldLabel(field),
+        before: displayFieldValue(field, previousEvent[field]),
+        after: displayFieldValue(field, nextEvent[field]),
+      },
+    ]),
+  );
+}
+
+function createHistoryEntry(type, account, summary, changes = {}) {
+  return {
+    id: randomUUID(),
+    type,
+    actorId: account.id,
+    at: new Date().toISOString(),
+    summary,
+    changes,
+  };
+}
+
+function appendHistory(event, entry) {
+  return {
+    ...event,
+    history: [...(event.history || []), entry],
+  };
+}
+
+function assertEventVisible(event, account) {
+  if (event.private && account.id !== "kristina") {
+    const error = new Error("Дело не найдено");
+    error.status = 404;
+    throw error;
+  }
+}
+
+export async function GET(request) {
+  try {
+    const account = await requireSessionAccount(request);
+    const todayKey = getBerlinDateKey();
+    const todayAfterDigest = isTodayAfterDigestTime();
+    const [events, deletedEvents, todayLocked] = await Promise.all([
+      readEvents(),
+      readDeletedEvents(),
+      hasDigestRun(todayKey),
+    ]);
+
+    return Response.json({
+      ok: true,
+      account,
+      accounts: getPublicAccounts(),
+      events: serializeEvents(events, account),
+      deletedEvents: serializeDeletedEvents(deletedEvents, account),
+      todayKey,
+      todayLocked,
+      todayAfterDigest,
+      people: PEOPLE,
+    });
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : "Не удалось загрузить дела", getErrorStatus(error));
+  }
 }
 
 export async function POST(request) {
   try {
+    const account = await requireSessionAccount(request);
     const input = await request.json();
     const context = await getWriteContext();
-    const nextEvent = cleanEvent(input, randomUUID());
+    const nextEvent = cleanEvent(input, randomUUID(), account);
     assertWritableDate(nextEvent.date, context);
-    await authorizeOwner(nextEvent.ownerId, cleanPassword(input), { allowCreate: true });
 
+    const createdEvent = appendHistory(
+      nextEvent,
+      createHistoryEntry("created", account, `Создал(а) ${account.name}`),
+    );
     const events = await readEvents();
-    const nextEvents = await writeEvents([...events, nextEvent]);
+    const nextEvents = await writeEvents([...events, createdEvent]);
+    const deletedEvents = await readDeletedEvents();
 
-    return Response.json({ ok: true, event: nextEvent, events: nextEvents }, { status: 201 });
+    return Response.json(
+      {
+        ok: true,
+        event: createdEvent,
+        events: serializeEvents(nextEvents, account),
+        deletedEvents: serializeDeletedEvents(deletedEvents, account),
+      },
+      { status: 201 },
+    );
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Не удалось добавить");
+    return jsonError(error instanceof Error ? error.message : "Не удалось добавить", getErrorStatus(error));
   }
 }
 
 export async function PUT(request) {
   try {
+    const account = await requireSessionAccount(request);
     const input = await request.json();
     const id = typeof input.id === "string" ? input.id : "";
 
@@ -176,33 +234,39 @@ export async function PUT(request) {
       return jsonError("Дело не найдено", 404);
     }
 
+    assertEventVisible(events[index], account);
+
     const context = await getWriteContext();
-    const nextEvent = cleanEvent(input, id);
+    const nextEvent = cleanEvent(input, id, account, events[index]);
     assertWritableDate(events[index].date, context);
     assertWritableDate(nextEvent.date, context);
 
-    if (nextEvent.ownerId !== events[index].ownerId) {
-      throw new Error("Человека у существующего дела менять нельзя");
-    }
-
-    await authorizeOwner(events[index].ownerId, cleanPassword(input));
-
+    const changes = buildChanges(events[index], nextEvent);
+    const eventToStore =
+      Object.keys(changes).length === 0
+        ? nextEvent
+        : appendHistory(nextEvent, createHistoryEntry("updated", account, `Изменил(а) ${account.name}`, changes));
     const nextEvents = [...events];
-    nextEvents[index] = nextEvent;
+    nextEvents[index] = eventToStore;
+    const storedEvents = await writeEvents(nextEvents);
+    const deletedEvents = await readDeletedEvents();
 
-    return Response.json({ ok: true, event: nextEvent, events: await writeEvents(nextEvents) });
+    return Response.json({
+      ok: true,
+      event: eventToStore,
+      events: serializeEvents(storedEvents, account),
+      deletedEvents: serializeDeletedEvents(deletedEvents, account),
+    });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Не удалось сохранить");
+    return jsonError(error instanceof Error ? error.message : "Не удалось сохранить", getErrorStatus(error));
   }
 }
 
 export async function DELETE(request) {
   try {
+    const account = await requireSessionAccount(request);
     const url = new URL(request.url);
     const id = url.searchParams.get("id");
-    const input = await request.json().catch(() => ({}));
-    const ownerPassword =
-      typeof input.ownerPassword === "string" ? input.ownerPassword : url.searchParams.get("ownerPassword") || "";
 
     if (!id) {
       return jsonError("Не найден id");
@@ -215,14 +279,31 @@ export async function DELETE(request) {
       return jsonError("Дело не найдено", 404);
     }
 
+    assertEventVisible(target, account);
+
     const context = await getWriteContext();
     assertWritableDate(target.date, context);
-    await authorizeOwner(target.ownerId, ownerPassword);
 
-    const nextEvents = events.filter((event) => event.id !== id);
+    const deletedAt = new Date().toISOString();
+    const deletedRecord = appendHistory(
+      {
+        ...target,
+        updatedBy: account.id,
+        updatedAt: deletedAt,
+        deletedBy: account.id,
+        deletedAt,
+      },
+      createHistoryEntry("deleted", account, `Удалил(а) ${account.name}`),
+    );
+    const storedEvents = await writeEvents(events.filter((event) => event.id !== id));
+    const storedDeletedEvents = await writeDeletedEvents([deletedRecord, ...(await readDeletedEvents())]);
 
-    return Response.json({ ok: true, events: await writeEvents(nextEvents) });
+    return Response.json({
+      ok: true,
+      events: serializeEvents(storedEvents, account),
+      deletedEvents: serializeDeletedEvents(storedDeletedEvents, account),
+    });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Не удалось удалить");
+    return jsonError(error instanceof Error ? error.message : "Не удалось удалить", getErrorStatus(error));
   }
 }
