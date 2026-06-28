@@ -199,6 +199,15 @@ button:disabled {
 }
 
 .app-shell.kristina-theme {
+  --pride-ribbon: linear-gradient(
+    90deg,
+    #ff3a60 0 16.66%,
+    #ffb547 16.66% 33.33%,
+    #ffec5c 33.33% 50%,
+    #41e377 50% 66.66%,
+    #3ba7ff 66.66% 83.33%,
+    #9f5fff 83.33% 100%
+  );
   --panel: rgba(45, 38, 72, 0.93);
   --panel-strong: rgba(55, 44, 88, 0.98);
   --accent: #7df7c2;
@@ -214,6 +223,7 @@ button:disabled {
 
 .calendar-panel,
 .details-panel {
+  position: relative;
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--line);
@@ -243,6 +253,18 @@ button:disabled {
     linear-gradient(160deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04)),
     linear-gradient(128deg, rgba(255, 95, 152, 0.08), rgba(125, 247, 194, 0.08), rgba(200, 154, 255, 0.1)),
     var(--panel);
+}
+
+.app-shell.kristina-theme .calendar-panel::before,
+.app-shell.kristina-theme .details-panel::before {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 2;
+  height: 3px;
+  content: "";
+  background: var(--pride-ribbon);
+  opacity: 0.86;
+  pointer-events: none;
 }
 
 .details-panel {
@@ -1051,33 +1073,100 @@ h3 {
   color: #101426;
 }
 
-.private-toggle {
+.event-form .private-toggle {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 9px;
+  width: 100%;
+  gap: 10px;
   min-height: 42px;
   border: 1px solid rgba(168, 140, 255, 0.42);
   border-radius: 8px;
   background: rgba(168, 140, 255, 0.12);
   color: #e7dcff;
-  padding: 8px 10px;
+  padding: 7px;
+  cursor: pointer;
+}
+
+.app-shell.kristina-theme .event-form .private-toggle {
+  border-color: transparent;
+  background:
+    linear-gradient(145deg, rgba(45, 38, 72, 0.96), rgba(61, 48, 91, 0.92)) padding-box,
+    var(--pride-ribbon) border-box;
+  color: #fff1ff;
+  box-shadow: 0 0 18px rgba(255, 95, 152, 0.12);
 }
 
 .event-form .private-toggle input {
-  width: 18px;
-  min-width: 18px;
-  height: 18px;
-  min-height: 18px;
+  position: absolute;
+  width: 1px;
+  min-width: 1px;
+  height: 1px;
+  min-height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
   padding: 0;
   accent-color: var(--violet);
 }
 
-.private-toggle span {
+.event-form .private-toggle span {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  width: 100%;
+  gap: 8px;
+  min-height: 34px;
+  border-radius: 7px;
+  padding: 0 10px 0 4px;
   font-size: 0.76rem;
   font-weight: 800;
+}
+
+.event-form .private-toggle span::before {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.08)),
+    rgba(13, 18, 31, 0.48);
+  color: transparent;
+  content: "";
+  box-shadow: inset 0 0 0 2px rgba(13, 18, 31, 0.18);
+}
+
+.event-form .private-toggle span::after {
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #d8deef;
+  content: "";
+  transform: translateY(-50%);
+  transition:
+    background 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.event-form .private-toggle input:focus-visible + span {
+  box-shadow: 0 0 0 3px rgba(255, 207, 109, 0.16);
+}
+
+.event-form .private-toggle input:checked + span::before {
+  border-color: rgba(255, 255, 255, 0.38);
+  background: var(--pride-ribbon, linear-gradient(90deg, #ff7ab6, #a88cff));
+}
+
+.event-form .private-toggle input:checked + span::after {
+  background: #fffdf7;
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.32);
+  transform: translate(18px, -50%);
 }
 
 .owner-pill {
@@ -1107,6 +1196,24 @@ h3 {
 .account-pill.owner-kristina {
   border-color: rgba(168, 140, 255, 0.62);
   background: #a88cff;
+}
+
+.app-shell.kristina-theme .owner-kristina.selected,
+.app-shell.kristina-theme .owner-pill.owner-kristina,
+.app-shell.kristina-theme .account-pill.owner-kristina {
+  border-color: rgba(255, 255, 255, 0.38);
+  background: var(--pride-ribbon);
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(20, 18, 32, 0.42);
+  box-shadow: 0 0 16px rgba(255, 95, 152, 0.14);
+}
+
+.app-shell.kristina-theme .owner-option.owner-kristina:not(.selected) {
+  border-color: rgba(200, 154, 255, 0.58);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.05)),
+    rgba(200, 154, 255, 0.12);
+  color: #f2e9ff;
 }
 
 .owner-alexey.selected,
@@ -1455,6 +1562,20 @@ h3 {
   box-shadow:
     0 0 26px rgba(101, 243, 208, 0.26),
     0 0 22px rgba(168, 140, 255, 0.16);
+}
+
+.app-shell.kristina-theme .save-button {
+  border-color: rgba(255, 255, 255, 0.34);
+  background: var(--pride-ribbon);
+  color: #141426;
+  box-shadow: 0 0 20px rgba(255, 95, 152, 0.12);
+}
+
+.app-shell.kristina-theme .save-button:hover {
+  border-color: rgba(255, 255, 255, 0.58);
+  box-shadow:
+    0 0 24px rgba(255, 95, 152, 0.18),
+    0 0 24px rgba(59, 167, 255, 0.16);
 }
 
 .save-button:disabled {
