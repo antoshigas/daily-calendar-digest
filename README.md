@@ -12,21 +12,24 @@ Production stores events, owner password hashes, and daily digest run markers in
 
 Local development falls back to JSON files:
 
-- `data/events.local.json`
-- `data/digest-runs.local.json`
-- `data/owner-passwords.local.json`
+- `data/*.local.json`
+
+Documents are stored in Vercel Blob. File bytes are encrypted before upload; Redis stores only the encrypted file URL and the decryption metadata needed by the app.
 
 ## Calendar Rules
 
 - The month opens without the details panel.
-- The page auto-syncs events every 18 seconds.
-- Past empty days are inactive.
-- Past days with events can be opened for viewing only.
+- The page auto-syncs events in the background every 6 seconds.
+- Past days can be opened for viewing only, including days with no events.
 - Today is writable only before `06:00` Berlin time and before the daily digest is processed.
 - After `06:00` Berlin time or after the cron runs, today becomes view-only too.
 - Each event belongs to exactly one person: Elena, Anton, Kristina, or Alexey.
-- A person's password is created on their first event. Later create, edit, and delete actions for that person require the same password.
+- Login uses existing accounts for Elena, Anton, and Kristina. Alexey has events but no separate account.
 - Passwords are stored as salted hashes, not plain text.
+- Each account can optionally enable a phone-style graphic key as a second login step.
+- Only Kristina can create private events, and only for Kristina.
+- Private events are hidden from other accounts and from the main Telegram channel.
+- Removed documents are not physically deleted. They leave the active event view and stay downloadable from event history and the deleted-events archive.
 
 ## Telegram
 
@@ -38,10 +41,14 @@ Optional personal recipient uses env vars:
 
 Telegram bots can send a personal message only after that user opens the bot and sends `/start` or any message once.
 
+Telegram messages include event notes and document names, but not public document links. Files are downloaded through the calendar after login.
+
 ## Files
 
 - `app/page.js` - monthly calendar UI.
 - `app/api/events/route.js` - create, update, delete, and read events.
+- `app/api/events/attachments/route.js` - encrypted document upload/download and soft removal.
+- `app/api/auth/graphic-key/route.js` - optional graphic key setup.
 - `app/api/cron/morning/route.js` - protected endpoint called by Vercel Cron.
 - `vercel.json` - daily schedule at `04:00 UTC`, about `06:00` in Berlin during summer time.
 
