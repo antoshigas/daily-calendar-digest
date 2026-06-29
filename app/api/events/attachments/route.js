@@ -1,4 +1,4 @@
-import { del, put } from "@vercel/blob";
+import { put } from "@vercel/blob";
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from "node:crypto";
 import { requireSessionAccount } from "../../../../lib/auth.js";
 import {
@@ -77,6 +77,8 @@ function serializeAttachment(attachment) {
     size: attachment.size,
     uploadedBy: attachment.uploadedBy,
     uploadedAt: attachment.uploadedAt,
+    removedBy: attachment.removedBy || "",
+    removedAt: attachment.removedAt || "",
   };
 }
 
@@ -84,6 +86,7 @@ function serializeEvent(event) {
   return {
     ...event,
     attachments: (event.attachments || []).map(serializeAttachment),
+    removedAttachments: (event.removedAttachments || []).map(serializeAttachment),
   };
 }
 
@@ -155,7 +158,9 @@ function findAttachmentEvent(events, eventId, attachmentId, account) {
   if (!event) return null;
 
   assertEventVisible(event, account);
-  const attachment = (event.attachments || []).find((item) => item.id === attachmentId);
+  const attachment = [...(event.attachments || []), ...(event.removedAttachments || [])].find(
+    (item) => item.id === attachmentId,
+  );
   if (!attachment) return null;
 
   return { event, attachment };
@@ -236,8 +241,7 @@ export async function POST(request) {
     const bytes = Buffer.from(await file.arrayBuffer());
     const encrypted = encryptBuffer(bytes);
     const attachmentId = randomUUID();
-    const safeName = safeBlobName(file.name);
-    const blob = await put(`attachments/${target.id}/${attachmentId}-${safeName}.bin`, encrypted.encrypted, {
+    const blob = await put(`attachments/${target.id}/${attachmentId}.bin`, encrypted.encrypted, {
       access: "public",
       contentType: "application/octet-stream",
     });
@@ -257,6 +261,7 @@ export async function POST(request) {
     const nextEvent = {
       ...target,
       attachments: [...(target.attachments || []), attachment],
+      removedAttachments: target.removedAttachments || [],
       updatedBy: account.id,
       updatedAt: now,
       history: [
@@ -302,19 +307,21 @@ export async function DELETE(request) {
       return jsonError("Файл не найден", 404);
     }
 
-    if (process.env.BLOB_READ_WRITE_TOKEN) {
-      await del(attachment.blobUrl).catch(() => {});
-    }
-
     const now = new Date().toISOString();
+    const removedAttachment = {
+      ...attachment,
+      removedBy: account.id,
+      removedAt: now,
+    };
     const nextEvent = {
       ...target,
       attachments: (target.attachments || []).filter((item) => item.id !== attachmentId),
+      removedAttachments: [removedAttachment, ...(target.removedAttachments || [])],
       updatedBy: account.id,
       updatedAt: now,
       history: [
         ...(target.history || []),
-        createHistoryEntry("attachment-deleted", account, `Удалил(а) файл: ${attachment.name}`),
+        createHistoryEntry("attachment-deleted", account, `Убрал(а) файл из дела: ${attachment.name}`),
       ],
     };
     const nextEvents = [...events];
@@ -329,6 +336,6 @@ export async function DELETE(request) {
       deletedEvents: serializeDeletedEvents(deletedEvents, account),
     });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Не удалось удалить файл", getErrorStatus(error));
+    return jsonError(error instanceof Error ? error.message : "Не удалось убрать файл", getErrorStatus(error));
   }
 }

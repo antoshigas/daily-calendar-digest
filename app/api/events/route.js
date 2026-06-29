@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { getPublicAccounts, requireSessionAccount } from "../../../lib/auth.js";
+import { getPublicAccountsWithSecurity, requireSessionAccount } from "../../../lib/auth.js";
 import {
   DEFAULT_OWNER_ID,
   PEOPLE,
@@ -76,6 +76,7 @@ function cleanEvent(input, id, account, previousEvent = null) {
     updatedBy: account.id,
     updatedAt: new Date().toISOString(),
     attachments: previousEvent?.attachments || [],
+    removedAttachments: previousEvent?.removedAttachments || [],
     history: previousEvent?.history || [],
   };
 }
@@ -102,6 +103,8 @@ function serializeAttachment(attachment) {
     size: attachment.size,
     uploadedBy: attachment.uploadedBy,
     uploadedAt: attachment.uploadedAt,
+    removedBy: attachment.removedBy || "",
+    removedAt: attachment.removedAt || "",
   };
 }
 
@@ -109,6 +112,7 @@ function serializeEvent(event) {
   return {
     ...event,
     attachments: (event.attachments || []).map(serializeAttachment),
+    removedAttachments: (event.removedAttachments || []).map(serializeAttachment),
   };
 }
 
@@ -193,7 +197,7 @@ export async function GET(request) {
     return Response.json({
       ok: true,
       account,
-      accounts: getPublicAccounts(),
+      accounts: await getPublicAccountsWithSecurity(),
       events: serializeEvents(events, account),
       deletedEvents: serializeDeletedEvents(deletedEvents, account),
       todayKey,
@@ -225,7 +229,7 @@ export async function POST(request) {
     return Response.json(
       {
         ok: true,
-        event: createdEvent,
+        event: serializeEvent(createdEvent),
         events: serializeEvents(nextEvents, account),
         deletedEvents: serializeDeletedEvents(deletedEvents, account),
       },
@@ -272,7 +276,7 @@ export async function PUT(request) {
 
     return Response.json({
       ok: true,
-      event: eventToStore,
+      event: serializeEvent(eventToStore),
       events: serializeEvents(storedEvents, account),
       deletedEvents: serializeDeletedEvents(deletedEvents, account),
     });

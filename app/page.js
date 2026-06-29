@@ -10,11 +10,11 @@ import {
   Download,
   EyeOff,
   History,
+  KeyRound,
   LogIn,
   LogOut,
   PanelRightClose,
   PanelRightOpen,
-  Paperclip,
   Pencil,
   Plus,
   ShieldCheck,
@@ -96,6 +96,12 @@ function eventsSignature(events) {
         attachment.size,
         attachment.uploadedAt || "",
       ]),
+      ...(event.removedAttachments || []).map((attachment) => [
+        attachment.id,
+        attachment.name,
+        attachment.size,
+        attachment.removedAt || "",
+      ]),
       event.updatedAt || "",
       event.deletedAt || "",
     ]),
@@ -126,7 +132,7 @@ function buildSyncFeedback(previousEvents, nextEvents) {
 }
 
 function hasRealHistory(event) {
-  return (event.history || []).some((entry) => entry.type === "updated");
+  return (event.history || []).some((entry) => entry.type !== "created");
 }
 
 function formatAuditDate(value) {
@@ -267,55 +273,105 @@ function keepFieldVisible(element) {
   }, 40);
 }
 
-function GraphicPatternInput({ challenge, value, onChange, onRefresh, busy }) {
-  const requiredLength = challenge?.length || 4;
+function GraphicPatternInput({ value, onChange, disabled = false, label = "Графический ключ", hint = "" }) {
+  const gridRef = useRef(null);
+  const drawingRef = useRef(false);
   const selected = Array.isArray(value) ? value : [];
+  const selectedRef = useRef(selected);
+  const selectedPoints = selected
+    .map((dot) => {
+      const column = dot % 3;
+      const row = Math.floor(dot / 3);
+      return `${50 + column * 100},${50 + row * 100}`;
+    })
+    .join(" ");
+
+  useEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
 
   function addDot(index) {
-    if (busy || selected.includes(index) || selected.length >= requiredLength) return;
-    onChange([...selected, index]);
+    const current = selectedRef.current;
+    if (disabled || current.includes(index) || current.length >= 9) return;
+
+    const next = [...current, index];
+    selectedRef.current = next;
+    onChange(next);
+  }
+
+  function getDotFromPointer(event) {
+    const element = document.elementFromPoint(event.clientX, event.clientY);
+    const dot = element?.closest?.("[data-pattern-dot]");
+    if (!dot || !gridRef.current?.contains(dot)) return null;
+    return Number(dot.getAttribute("data-pattern-dot"));
+  }
+
+  function handlePointerDown(event) {
+    if (disabled) return;
+    const dot = getDotFromPointer(event);
+    if (!Number.isInteger(dot)) return;
+
+    drawingRef.current = true;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+    addDot(dot);
+  }
+
+  function handlePointerMove(event) {
+    if (!drawingRef.current || disabled) return;
+    const dot = getDotFromPointer(event);
+    if (Number.isInteger(dot)) addDot(dot);
+  }
+
+  function stopDrawing(event) {
+    drawingRef.current = false;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
   }
 
   return (
-    <div className="graphic-challenge">
-      <div className="graphic-challenge-head">
+    <div className="pattern-lock">
+      <div className="pattern-lock-head">
         <div>
-          <span>Рисунок защиты</span>
+          <span>{label}</span>
           <strong>
-            {selected.length}/{requiredLength}
+            {selected.length}/9
           </strong>
         </div>
-        <button className="graphic-link-button" type="button" onClick={onRefresh} disabled={busy}>
-          Новый
-        </button>
       </div>
 
-      <div className="graphic-challenge-body">
-        <div className="graphic-sample" aria-label="Образец рисунка">
-          {challenge?.image ? <img src={challenge.image} alt="Рисунок защиты" /> : <span>Загружаю</span>}
-        </div>
-
-        <div className="graphic-grid" aria-label="Повторить рисунок" role="group">
-          {GRAPHIC_DOTS.map((dot) => {
-            const order = selected.indexOf(dot);
-            return (
-              <button
-                className={`graphic-dot${order !== -1 ? " selected" : ""}`}
-                key={dot}
-                type="button"
-                onClick={() => addDot(dot)}
-                disabled={busy || order !== -1 || selected.length >= requiredLength}
-                aria-label={`Точка ${dot + 1}`}
-              >
-                {order !== -1 ? order + 1 : ""}
-              </button>
-            );
-          })}
-        </div>
+      <div
+        className="pattern-grid"
+        ref={gridRef}
+        aria-label={label}
+        role="group"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={stopDrawing}
+        onPointerCancel={stopDrawing}
+      >
+        <svg className="pattern-lines" viewBox="0 0 300 300" aria-hidden="true">
+          {selectedPoints ? <polyline points={selectedPoints} /> : null}
+        </svg>
+        {GRAPHIC_DOTS.map((dot) => {
+          const order = selected.indexOf(dot);
+          return (
+            <button
+              className={`pattern-dot${order !== -1 ? " selected" : ""}`}
+              data-pattern-dot={dot}
+              key={dot}
+              type="button"
+              disabled={disabled}
+              aria-label={`Точка ${dot + 1}`}
+            >
+              {order !== -1 ? order + 1 : ""}
+            </button>
+          );
+        })}
       </div>
 
-      <button className="graphic-reset-button" type="button" onClick={() => onChange([])} disabled={busy || selected.length === 0}>
-        Сбросить рисунок
+      {hint ? <p className="pattern-hint">{hint}</p> : null}
+      <button className="pattern-reset-button" type="button" onClick={() => onChange([])} disabled={disabled || selected.length === 0}>
+        Нарисовать заново
       </button>
     </div>
   );
@@ -564,10 +620,11 @@ export default function CalendarPage() {
   const [loginForm, setLoginForm] = useState({
     accountId: ACCOUNTS[0]?.id || DEFAULT_OWNER_ID,
     password: "",
-    graphicChallengeId: "",
-    graphicAnswer: [],
+    graphicPattern: [],
   });
-  const [graphicChallenge, setGraphicChallenge] = useState(null);
+  const [graphicKey, setGraphicKey] = useState({ enabled: false, minLength: 4 });
+  const [securityOpen, setSecurityOpen] = useState(false);
+  const [securityPattern, setSecurityPattern] = useState([]);
   const [authReady, setAuthReady] = useState(false);
   const [viewMode, setViewMode] = useState("calendar");
   const [expandedHistoryId, setExpandedHistoryId] = useState(null);
@@ -580,6 +637,8 @@ export default function CalendarPage() {
   const [attachmentBusy, setAttachmentBusy] = useState("");
   const [feedback, setFeedback] = useState("");
   const [deletingId, setDeletingId] = useState(null);
+  const [pendingFiles, setPendingFiles] = useState([]);
+  const [deletedAttachmentIds, setDeletedAttachmentIds] = useState([]);
   const eventsRef = useRef([]);
   const eventsLoadedRef = useRef(false);
   const monthMotionTimerRef = useRef(null);
@@ -609,26 +668,8 @@ export default function CalendarPage() {
 
     if (payload.account) {
       await loadEvents({ quiet: true });
+      await loadGraphicKey().catch((error) => setFeedback(error.message));
     }
-  }
-
-  async function refreshGraphicChallenge(accountId = loginForm.accountId) {
-    const response = await fetch(`/api/auth/challenge?accountId=${encodeURIComponent(accountId)}`, {
-      cache: "no-store",
-    });
-    const payload = await response.json();
-
-    if (!response.ok) {
-      throw new Error(payload.error || "Не удалось обновить рисунок защиты");
-    }
-
-    setGraphicChallenge(payload.challenge || null);
-    setLoginForm((current) => ({
-      ...current,
-      accountId,
-      graphicChallengeId: payload.challenge?.id || "",
-      graphicAnswer: [],
-    }));
   }
 
   async function loadEvents({ quiet = false } = {}) {
@@ -660,18 +701,23 @@ export default function CalendarPage() {
     setTodayAfterDigest(Boolean(payload.todayAfterDigest));
   }
 
+  async function loadGraphicKey() {
+    const response = await fetch("/api/auth/graphic-key", { cache: "no-store" });
+    const payload = await response.json();
+
+    if (!response.ok) {
+      throw new Error(payload.error || "Не удалось загрузить графический ключ");
+    }
+
+    setGraphicKey(payload.graphicKey || { enabled: false, minLength: 4 });
+  }
+
   useEffect(() => {
     loadAuth().catch((error) => {
       setAuthReady(true);
       setFeedback(error.message);
     });
   }, []);
-
-  useEffect(() => {
-    if (!authReady || account) return;
-
-    refreshGraphicChallenge(loginForm.accountId).catch((error) => setFeedback(error.message));
-  }, [authReady, account, loginForm.accountId]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -805,6 +851,10 @@ export default function CalendarPage() {
   }, [events]);
   const selectedEvents = eventsByDate[selectedDate] || [];
   const deletedByDate = useMemo(() => groupDeletedByDate(deletedEvents), [deletedEvents]);
+  const selectedLoginAccount = useMemo(
+    () => accounts.find((person) => person.id === loginForm.accountId),
+    [accounts, loginForm.accountId],
+  );
   const canUsePrivate = account?.id === "kristina";
   const selectedWritable = isWritableDateKey(selectedDate, dateContext);
   const selectedLockReason = getDateLockReason(selectedDate, dateContext);
@@ -891,6 +941,8 @@ export default function CalendarPage() {
 
     setEditingId(event.id);
     setDeletingId(null);
+    setPendingFiles([]);
+    setDeletedAttachmentIds([]);
     selectDate(event.date, { toggleSame: false });
     setFormOpen(true);
     setForm({
@@ -906,12 +958,16 @@ export default function CalendarPage() {
   function resetForm(date = selectedDate) {
     setEditingId(null);
     setFormOpen(false);
+    setPendingFiles([]);
+    setDeletedAttachmentIds([]);
     setForm((current) => emptyForm(date, current.ownerId));
   }
 
   function openCreateForm() {
     setEditingId(null);
     setDeletingId(null);
+    setPendingFiles([]);
+    setDeletedAttachmentIds([]);
     setForm((current) => emptyForm(selectedDate, current.ownerId));
     setFormOpen(true);
   }
@@ -990,9 +1046,9 @@ export default function CalendarPage() {
 
   async function login(event) {
     event.preventDefault();
-    const expectedPatternLength = graphicChallenge?.length || 4;
-    if (!loginForm.graphicChallengeId || loginForm.graphicAnswer.length !== expectedPatternLength) {
-      setFeedback("Повторите рисунок защиты");
+    const selectedAccount = accounts.find((person) => person.id === loginForm.accountId);
+    if (selectedAccount?.graphicKeyEnabled && loginForm.graphicPattern.length < 4) {
+      setFeedback("Нарисуйте графический ключ");
       return;
     }
 
@@ -1013,14 +1069,14 @@ export default function CalendarPage() {
 
       setAccount(payload.account);
       setAccounts(payload.accounts || ACCOUNTS);
-      setLoginForm((current) => ({ ...current, password: "", graphicChallengeId: "", graphicAnswer: [] }));
-      setGraphicChallenge(null);
+      setLoginForm((current) => ({ ...current, password: "", graphicPattern: [] }));
       eventsLoadedRef.current = false;
       await loadEvents({ quiet: true });
+      await loadGraphicKey().catch((loadError) => setFeedback(loadError.message));
       setFeedback("");
     } catch (error) {
       setFeedback(error.message);
-      refreshGraphicChallenge(loginForm.accountId).catch(() => {});
+      setLoginForm((current) => ({ ...current, graphicPattern: [] }));
     } finally {
       setBusy(false);
     }
@@ -1038,8 +1094,10 @@ export default function CalendarPage() {
       eventsLoadedRef.current = false;
       setDetailsOpen(false);
       setViewMode("calendar");
-      setLoginForm((current) => ({ ...current, password: "", graphicChallengeId: "", graphicAnswer: [] }));
-      setGraphicChallenge(null);
+      setLoginForm((current) => ({ ...current, password: "", graphicPattern: [] }));
+      setGraphicKey({ enabled: false, minLength: 4 });
+      setSecurityOpen(false);
+      setSecurityPattern([]);
       setFeedback("Вы вышли");
     } catch (error) {
       setFeedback(error.message);
@@ -1081,6 +1139,22 @@ export default function CalendarPage() {
       eventsLoadedRef.current = true;
       setEvents(nextEvents);
       setDeletedEvents(payload.deletedEvents || deletedEvents);
+      let savedEventId = payload.event?.id || editingId;
+
+      for (const attachmentId of deletedAttachmentIds) {
+        await deleteAttachment(savedEventId, attachmentId, { showFeedback: false });
+      }
+
+      for (const file of pendingFiles) {
+        await uploadAttachment(savedEventId, file, { showFeedback: false });
+      }
+
+      if (deletedAttachmentIds.length > 0 || pendingFiles.length > 0) {
+        await loadEvents({ quiet: false });
+      }
+
+      setPendingFiles([]);
+      setDeletedAttachmentIds([]);
       resetForm(form.date);
       selectDate(form.date, { toggleSame: false });
       setFormOpen(false);
@@ -1130,11 +1204,11 @@ export default function CalendarPage() {
     }
   }
 
-  async function uploadAttachment(eventId, file) {
+  async function uploadAttachment(eventId, file, { showFeedback = true } = {}) {
     if (!file) return;
 
     setAttachmentBusy(eventId);
-    setFeedback("Загружаю файл");
+    if (showFeedback) setFeedback("Загружаю файл");
 
     try {
       const formData = new FormData();
@@ -1156,17 +1230,19 @@ export default function CalendarPage() {
       eventsLoadedRef.current = true;
       setEvents(nextEvents);
       setDeletedEvents(payload.deletedEvents || deletedEvents);
-      setFeedback("Файл прикреплён");
+      if (showFeedback) setFeedback("Файл прикреплён");
+      return payload;
     } catch (error) {
       setFeedback(error.message);
+      throw error;
     } finally {
       setAttachmentBusy("");
     }
   }
 
-  async function deleteAttachment(eventId, attachmentId) {
+  async function deleteAttachment(eventId, attachmentId, { showFeedback = true } = {}) {
     setAttachmentBusy(`${eventId}:${attachmentId}`);
-    setFeedback("Удаляю файл");
+    if (showFeedback) setFeedback("Убираю файл");
 
     try {
       const response = await fetch(
@@ -1176,7 +1252,7 @@ export default function CalendarPage() {
       const payload = await response.json();
 
       if (!response.ok) {
-        throw new Error(payload.error || "Не удалось удалить файл");
+        throw new Error(payload.error || "Не удалось убрать файл");
       }
 
       const nextEvents = sortEvents(payload.events);
@@ -1184,15 +1260,77 @@ export default function CalendarPage() {
       eventsLoadedRef.current = true;
       setEvents(nextEvents);
       setDeletedEvents(payload.deletedEvents || deletedEvents);
-      setFeedback("Файл удалён");
+      if (showFeedback) setFeedback("Файл убран");
+      return payload;
     } catch (error) {
       setFeedback(error.message);
+      throw error;
     } finally {
       setAttachmentBusy("");
     }
   }
 
-  function renderAttachments(event, { readonly = false, writable = false } = {}) {
+  async function saveGraphicKey(event) {
+    event.preventDefault();
+    if (securityPattern.length < (graphicKey.minLength || 4)) {
+      setFeedback("Графический ключ должен содержать минимум 4 точки");
+      return;
+    }
+
+    setBusy(true);
+    setFeedback("Сохраняю ключ");
+
+    try {
+      const response = await fetch("/api/auth/graphic-key", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pattern: securityPattern }),
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Не удалось сохранить графический ключ");
+      }
+
+      setGraphicKey(payload.graphicKey || { enabled: true, minLength: 4 });
+      setAccounts((current) =>
+        current.map((person) => (person.id === account.id ? { ...person, graphicKeyEnabled: true } : person)),
+      );
+      setSecurityPattern([]);
+      setFeedback("Графический ключ сохранён");
+    } catch (error) {
+      setFeedback(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disableGraphicKey() {
+    setBusy(true);
+    setFeedback("Отключаю ключ");
+
+    try {
+      const response = await fetch("/api/auth/graphic-key", { method: "DELETE" });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Не удалось отключить графический ключ");
+      }
+
+      setGraphicKey(payload.graphicKey || { enabled: false, minLength: 4 });
+      setAccounts((current) =>
+        current.map((person) => (person.id === account.id ? { ...person, graphicKeyEnabled: false } : person)),
+      );
+      setSecurityPattern([]);
+      setFeedback("Графический ключ отключён");
+    } catch (error) {
+      setFeedback(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function renderAttachments(event) {
     const attachments = event.attachments || [];
     if (attachments.length === 0) return null;
 
@@ -1210,20 +1348,114 @@ export default function CalendarPage() {
               <span>{attachment.name}</span>
               <small>{formatFileSize(attachment.size)}</small>
             </a>
-            {!readonly && writable ? (
-              <button
-                className="attachment-delete-button"
-                type="button"
-                onClick={() => deleteAttachment(event.id, attachment.id)}
-                disabled={attachmentBusy === `${event.id}:${attachment.id}`}
-                aria-label="Удалить файл"
-                title="Удалить файл"
-              >
-                <X size={13} />
-              </button>
-            ) : null}
           </div>
         ))}
+      </div>
+    );
+  }
+
+  function renderRemovedAttachments(event) {
+    const attachments = event.removedAttachments || [];
+    if (attachments.length === 0) return null;
+
+    return (
+      <div className="removed-attachments">
+        <h4>Убранные документы</h4>
+        <div className="attachment-list">
+          {attachments.map((attachment) => (
+            <div className="attachment-item removed" key={`removed-${attachment.id}`}>
+              <a
+                className="attachment-link"
+                href={`/api/events/attachments?eventId=${encodeURIComponent(event.id)}&attachmentId=${encodeURIComponent(attachment.id)}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Download size={14} />
+                <span>{attachment.name}</span>
+                <small>{formatFileSize(attachment.size)}</small>
+              </a>
+              {attachment.removedAt ? <small>{formatAuditDate(attachment.removedAt)}</small> : null}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  function renderFormAttachments() {
+    const editingEvent = editingId ? events.find((event) => event.id === editingId) : null;
+    const visibleAttachments = (editingEvent?.attachments || []).filter(
+      (attachment) => !deletedAttachmentIds.includes(attachment.id),
+    );
+
+    return (
+      <div className="form-attachments">
+        <div className="form-attachments-head">
+          <span>Документы</span>
+          <label className="file-pick-button">
+            Добавить файл
+            <input
+              type="file"
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.png,.jpg,.jpeg,.webp"
+              multiple
+              onChange={(inputEvent) => {
+                const files = Array.from(inputEvent.target.files || []);
+                inputEvent.target.value = "";
+                if (files.length > 0) {
+                  setPendingFiles((current) => [...current, ...files]);
+                }
+              }}
+            />
+          </label>
+        </div>
+
+        {visibleAttachments.length === 0 && pendingFiles.length === 0 ? (
+          <p className="form-attachments-empty">Файлов нет</p>
+        ) : null}
+
+        {visibleAttachments.length > 0 ? (
+          <div className="form-attachment-list">
+            {visibleAttachments.map((attachment) => (
+              <div className="form-attachment-row" key={attachment.id}>
+                <a
+                  href={`/api/events/attachments?eventId=${encodeURIComponent(editingEvent.id)}&attachmentId=${encodeURIComponent(attachment.id)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Download size={14} />
+                  <span>{attachment.name}</span>
+                  <small>{formatFileSize(attachment.size)}</small>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setDeletedAttachmentIds((current) => [...current, attachment.id])}
+                >
+                  Убрать
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {pendingFiles.length > 0 ? (
+          <div className="form-attachment-list">
+            {pendingFiles.map((file, index) => (
+              <div className="form-attachment-row pending" key={`${file.name}-${file.size}-${index}`}>
+                <span>
+                  <Download size={14} />
+                  <span>{file.name}</span>
+                  <small>{formatFileSize(file.size)}</small>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPendingFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                >
+                  Убрать
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -1298,12 +1530,10 @@ export default function CalendarPage() {
                 value={loginForm.accountId}
                 onChange={(event) => {
                   const accountId = event.target.value;
-                  setGraphicChallenge(null);
                   setLoginForm((current) => ({
                     ...current,
                     accountId,
-                    graphicChallengeId: "",
-                    graphicAnswer: [],
+                    graphicPattern: [],
                   }));
                 }}
               >
@@ -1326,13 +1556,14 @@ export default function CalendarPage() {
               />
             </label>
 
-            <GraphicPatternInput
-              busy={busy}
-              challenge={graphicChallenge}
-              value={loginForm.graphicAnswer}
-              onChange={(answer) => setLoginForm((current) => ({ ...current, graphicAnswer: answer }))}
-              onRefresh={() => refreshGraphicChallenge(loginForm.accountId).catch((error) => setFeedback(error.message))}
-            />
+            {selectedLoginAccount?.graphicKeyEnabled ? (
+              <GraphicPatternInput
+                disabled={busy}
+                value={loginForm.graphicPattern}
+                onChange={(pattern) => setLoginForm((current) => ({ ...current, graphicPattern: pattern }))}
+                hint="Нарисуйте личный ключ этого аккаунта"
+              />
+            ) : null}
 
             <button className="save-button" type="submit" disabled={busy}>
               <LogIn size={18} />
@@ -1394,6 +1625,15 @@ export default function CalendarPage() {
                 {account.name}
               </span>
               <button
+                className={`icon-button subtle${securityOpen ? " active-control" : ""}`}
+                type="button"
+                onClick={() => setSecurityOpen((current) => !current)}
+                aria-label="Графический ключ"
+                title="Графический ключ"
+              >
+                <KeyRound size={17} />
+              </button>
+              <button
                 className={`icon-button subtle${viewMode === "deleted" ? " active-control" : ""}`}
                 type="button"
                 onClick={toggleDeletedView}
@@ -1407,6 +1647,33 @@ export default function CalendarPage() {
               </button>
             </div>
           </header>
+
+          {securityOpen ? (
+            <form className="security-panel" onSubmit={saveGraphicKey}>
+              <div>
+                <h2>Графический ключ</h2>
+                <p>{graphicKey.enabled ? "Включён для этого аккаунта" : "Можно добавить как второй шаг входа"}</p>
+              </div>
+              <GraphicPatternInput
+                disabled={busy}
+                value={securityPattern}
+                onChange={setSecurityPattern}
+                label={graphicKey.enabled ? "Новый ключ" : "Создать ключ"}
+                hint="Минимум 4 точки. Нарисуйте жестом, как на телефоне."
+              />
+              <div className="security-actions">
+                <button className="save-button" type="submit" disabled={busy || securityPattern.length < 4}>
+                  <Check size={17} />
+                  Сохранить ключ
+                </button>
+                {graphicKey.enabled ? (
+                  <button className="delete-cancel-button" type="button" onClick={disableGraphicKey} disabled={busy}>
+                    Отключить
+                  </button>
+                ) : null}
+              </div>
+            </form>
+          ) : null}
 
           {viewMode === "deleted" ? (
             <section className="deleted-view" aria-label="Удалённые дела">
@@ -1445,7 +1712,8 @@ export default function CalendarPage() {
                           {event.private ? <span className="private-pill">частное</span> : null}
                           <h3>{event.title}</h3>
                           {event.note ? <p>{event.note}</p> : null}
-                          {renderAttachments(event, { readonly: true })}
+                          {renderAttachments(event)}
+                          {renderRemovedAttachments(event)}
                           <p>
                             Удалил(а): {getActorName(event.deletedBy)} · {formatAuditDate(event.deletedAt)}
                           </p>
@@ -1589,7 +1857,7 @@ export default function CalendarPage() {
                       {event.private ? <span className="private-pill">частное</span> : null}
                       <h3>{event.title}</h3>
                       {event.note ? <p>{event.note}</p> : null}
-                      {renderAttachments(event, { writable: eventWritable })}
+                      {renderAttachments(event)}
                       {hasRealHistory(event) ? (
                         <>
                           <button
@@ -1603,6 +1871,7 @@ export default function CalendarPage() {
                             История
                           </button>
                           {expandedHistoryId === event.id ? <HistoryBlock event={event} compact /> : null}
+                          {expandedHistoryId === event.id ? renderRemovedAttachments(event) : null}
                         </>
                       ) : null}
 
@@ -1628,25 +1897,6 @@ export default function CalendarPage() {
                     </div>
                     {eventWritable ? (
                       <div className="row-actions">
-                        <label
-                          className={`icon-button subtle attachment-upload-button${
-                            attachmentBusy === event.id ? " disabled" : ""
-                          }`}
-                          aria-label="Прикрепить файл"
-                          title="Прикрепить файл"
-                        >
-                          <Paperclip size={17} />
-                          <input
-                            type="file"
-                            accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.png,.jpg,.jpeg,.webp"
-                            disabled={attachmentBusy === event.id}
-                            onChange={(inputEvent) => {
-                              const file = inputEvent.target.files?.[0];
-                              inputEvent.target.value = "";
-                              uploadAttachment(event.id, file);
-                            }}
-                          />
-                        </label>
                         <button className="icon-button subtle" type="button" onClick={() => startEdit(event)} aria-label="Редактировать">
                           <Pencil size={17} />
                         </button>
@@ -1767,6 +2017,8 @@ export default function CalendarPage() {
                     rows={3}
                   />
                 </label>
+
+                {renderFormAttachments()}
 
                 <button className="save-button" type="submit" disabled={busy}>
                   {editingId ? <Check size={18} /> : <Plus size={18} />}

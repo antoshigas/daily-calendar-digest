@@ -4,7 +4,7 @@
 node_modules/
 .vercel/
 work/
-data/events.local.json
-data/digest-runs.local.json
-data/owner-passwords.local.json
+data/*.local.json
 .next/
+
+.env*
