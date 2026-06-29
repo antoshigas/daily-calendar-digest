@@ -594,6 +594,29 @@ h3 {
     0 0 18px rgba(59, 167, 255, 0.12);
 }
 
+.app-shell.kristina-theme .owner-kristina.selected,
+.app-shell.kristina-theme .owner-pill.owner-kristina,
+.app-shell.kristina-theme .account-pill.owner-kristina,
+.app-shell.kristina-theme .save-button,
+.app-shell.kristina-theme .event-form .private-toggle input:checked + span {
+  -webkit-text-stroke: 0.35px rgba(16, 14, 30, 0.84);
+  text-shadow:
+    0 1px 1px rgba(16, 14, 30, 0.82),
+    1px 0 0 rgba(16, 14, 30, 0.64),
+    -1px 0 0 rgba(16, 14, 30, 0.64),
+    0 -1px 0 rgba(16, 14, 30, 0.56);
+}
+
+.app-shell.kristina-theme .owner-kristina.selected svg,
+.app-shell.kristina-theme .owner-pill.owner-kristina svg,
+.app-shell.kristina-theme .account-pill.owner-kristina svg,
+.app-shell.kristina-theme .save-button svg,
+.app-shell.kristina-theme .event-form .private-toggle input:checked + span svg {
+  filter:
+    drop-shadow(0 1px 1px rgba(16, 14, 30, 0.82))
+    drop-shadow(1px 0 0 rgba(16, 14, 30, 0.5));
+}
+
 .feedback-line {
   position: absolute;
   top: 12px;
@@ -722,6 +745,27 @@ h3 {
     inset 0 0 0 1px rgba(255, 236, 92, 0.5),
     0 0 30px rgba(255, 95, 152, 0.18),
     0 0 30px rgba(59, 167, 255, 0.14);
+}
+
+.day-cell.today {
+  border-color: rgba(255, 207, 109, 0.78);
+  background:
+    linear-gradient(155deg, rgba(255, 207, 109, 0.22), rgba(101, 243, 208, 0.1)),
+    rgba(34, 37, 57, 0.82);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 207, 109, 0.42),
+    0 0 28px rgba(255, 207, 109, 0.18);
+}
+
+.app-shell.kristina-theme .day-cell.today {
+  border-color: rgba(255, 236, 92, 0.88);
+  background:
+    linear-gradient(155deg, rgba(255, 236, 92, 0.24), rgba(255, 95, 152, 0.12), rgba(59, 167, 255, 0.1)),
+    rgba(45, 38, 72, 0.88);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 236, 92, 0.48),
+    0 0 30px rgba(255, 236, 92, 0.18),
+    0 0 28px rgba(255, 95, 152, 0.12);
 }
 
 .day-cell.today .day-number {
@@ -1204,7 +1248,6 @@ h3 {
   border-color: rgba(255, 255, 255, 0.38);
   background: var(--pride-ribbon);
   color: #ffffff;
-  text-shadow: 0 1px 2px rgba(20, 18, 32, 0.42);
   box-shadow: 0 0 16px rgba(255, 95, 152, 0.14);
 }
 
