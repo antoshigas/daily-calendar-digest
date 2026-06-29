@@ -7,12 +7,14 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Download,
   EyeOff,
   History,
   LogIn,
   LogOut,
   PanelRightClose,
   PanelRightOpen,
+  Paperclip,
   Pencil,
   Plus,
   ShieldCheck,
@@ -57,6 +59,7 @@ const SWIPE_INTENT_RATIO = 1.15;
 const WHEEL_MONTH_THRESHOLD = 80;
 const WHEEL_MONTH_COOLDOWN_MS = 650;
 const FOCUS_SCROLL_DELAY_MS = 120;
+const GRAPHIC_DOTS = Array.from({ length: 9 }, (_, index) => index);
 
 function emptyForm(date, ownerId = DEFAULT_OWNER_ID) {
   return {
@@ -87,10 +90,24 @@ function eventsSignature(events) {
       event.private ? "private" : "public",
       event.title,
       event.note || "",
+      ...(event.attachments || []).map((attachment) => [
+        attachment.id,
+        attachment.name,
+        attachment.size,
+        attachment.uploadedAt || "",
+      ]),
       event.updatedAt || "",
       event.deletedAt || "",
     ]),
   );
+}
+
+function formatFileSize(size) {
+  const bytes = Number(size) || 0;
+  if (bytes < 1024) return `${bytes} Б`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${Math.round(kb)} КБ`;
+  return `${(kb / 1024).toFixed(1).replace(".0", "")} МБ`;
 }
 
 function buildSyncFeedback(previousEvents, nextEvents) {
@@ -248,6 +265,60 @@ function keepFieldVisible(element) {
   window.setTimeout(() => {
     target.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
   }, 40);
+}
+
+function GraphicPatternInput({ challenge, value, onChange, onRefresh, busy }) {
+  const requiredLength = challenge?.length || 4;
+  const selected = Array.isArray(value) ? value : [];
+
+  function addDot(index) {
+    if (busy || selected.includes(index) || selected.length >= requiredLength) return;
+    onChange([...selected, index]);
+  }
+
+  return (
+    <div className="graphic-challenge">
+      <div className="graphic-challenge-head">
+        <div>
+          <span>Рисунок защиты</span>
+          <strong>
+            {selected.length}/{requiredLength}
+          </strong>
+        </div>
+        <button className="graphic-link-button" type="button" onClick={onRefresh} disabled={busy}>
+          Новый
+        </button>
+      </div>
+
+      <div className="graphic-challenge-body">
+        <div className="graphic-sample" aria-label="Образец рисунка">
+          {challenge?.image ? <img src={challenge.image} alt="Рисунок защиты" /> : <span>Загружаю</span>}
+        </div>
+
+        <div className="graphic-grid" aria-label="Повторить рисунок" role="group">
+          {GRAPHIC_DOTS.map((dot) => {
+            const order = selected.indexOf(dot);
+            return (
+              <button
+                className={`graphic-dot${order !== -1 ? " selected" : ""}`}
+                key={dot}
+                type="button"
+                onClick={() => addDot(dot)}
+                disabled={busy || order !== -1 || selected.length >= requiredLength}
+                aria-label={`Точка ${dot + 1}`}
+              >
+                {order !== -1 ? order + 1 : ""}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <button className="graphic-reset-button" type="button" onClick={() => onChange([])} disabled={busy || selected.length === 0}>
+        Сбросить рисунок
+      </button>
+    </div>
+  );
 }
 
 function TimePicker({ value, onChange }) {
@@ -490,7 +561,13 @@ export default function CalendarPage() {
   const [form, setForm] = useState(emptyForm(initialTodayKey));
   const [account, setAccount] = useState(null);
   const [accounts, setAccounts] = useState(ACCOUNTS);
-  const [loginForm, setLoginForm] = useState({ accountId: ACCOUNTS[0]?.id || DEFAULT_OWNER_ID, password: "" });
+  const [loginForm, setLoginForm] = useState({
+    accountId: ACCOUNTS[0]?.id || DEFAULT_OWNER_ID,
+    password: "",
+    graphicChallengeId: "",
+    graphicAnswer: [],
+  });
+  const [graphicChallenge, setGraphicChallenge] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [viewMode, setViewMode] = useState("calendar");
   const [expandedHistoryId, setExpandedHistoryId] = useState(null);
@@ -500,6 +577,7 @@ export default function CalendarPage() {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [attachmentBusy, setAttachmentBusy] = useState("");
   const [feedback, setFeedback] = useState("");
   const [deletingId, setDeletingId] = useState(null);
   const eventsRef = useRef([]);
@@ -532,6 +610,25 @@ export default function CalendarPage() {
     if (payload.account) {
       await loadEvents({ quiet: true });
     }
+  }
+
+  async function refreshGraphicChallenge(accountId = loginForm.accountId) {
+    const response = await fetch(`/api/auth/challenge?accountId=${encodeURIComponent(accountId)}`, {
+      cache: "no-store",
+    });
+    const payload = await response.json();
+
+    if (!response.ok) {
+      throw new Error(payload.error || "Не удалось обновить рисунок защиты");
+    }
+
+    setGraphicChallenge(payload.challenge || null);
+    setLoginForm((current) => ({
+      ...current,
+      accountId,
+      graphicChallengeId: payload.challenge?.id || "",
+      graphicAnswer: [],
+    }));
   }
 
   async function loadEvents({ quiet = false } = {}) {
@@ -569,6 +666,12 @@ export default function CalendarPage() {
       setFeedback(error.message);
     });
   }, []);
+
+  useEffect(() => {
+    if (!authReady || account) return;
+
+    refreshGraphicChallenge(loginForm.accountId).catch((error) => setFeedback(error.message));
+  }, [authReady, account, loginForm.accountId]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -887,6 +990,12 @@ export default function CalendarPage() {
 
   async function login(event) {
     event.preventDefault();
+    const expectedPatternLength = graphicChallenge?.length || 4;
+    if (!loginForm.graphicChallengeId || loginForm.graphicAnswer.length !== expectedPatternLength) {
+      setFeedback("Повторите рисунок защиты");
+      return;
+    }
+
     setBusy(true);
     setFeedback("");
 
@@ -904,12 +1013,14 @@ export default function CalendarPage() {
 
       setAccount(payload.account);
       setAccounts(payload.accounts || ACCOUNTS);
-      setLoginForm((current) => ({ ...current, password: "" }));
+      setLoginForm((current) => ({ ...current, password: "", graphicChallengeId: "", graphicAnswer: [] }));
+      setGraphicChallenge(null);
       eventsLoadedRef.current = false;
       await loadEvents({ quiet: true });
       setFeedback("");
     } catch (error) {
       setFeedback(error.message);
+      refreshGraphicChallenge(loginForm.accountId).catch(() => {});
     } finally {
       setBusy(false);
     }
@@ -927,6 +1038,8 @@ export default function CalendarPage() {
       eventsLoadedRef.current = false;
       setDetailsOpen(false);
       setViewMode("calendar");
+      setLoginForm((current) => ({ ...current, password: "", graphicChallengeId: "", graphicAnswer: [] }));
+      setGraphicChallenge(null);
       setFeedback("Вы вышли");
     } catch (error) {
       setFeedback(error.message);
@@ -1017,6 +1130,104 @@ export default function CalendarPage() {
     }
   }
 
+  async function uploadAttachment(eventId, file) {
+    if (!file) return;
+
+    setAttachmentBusy(eventId);
+    setFeedback("Загружаю файл");
+
+    try {
+      const formData = new FormData();
+      formData.append("eventId", eventId);
+      formData.append("file", file);
+
+      const response = await fetch("/api/events/attachments", {
+        method: "POST",
+        body: formData,
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Не удалось прикрепить файл");
+      }
+
+      const nextEvents = sortEvents(payload.events);
+      eventsRef.current = nextEvents;
+      eventsLoadedRef.current = true;
+      setEvents(nextEvents);
+      setDeletedEvents(payload.deletedEvents || deletedEvents);
+      setFeedback("Файл прикреплён");
+    } catch (error) {
+      setFeedback(error.message);
+    } finally {
+      setAttachmentBusy("");
+    }
+  }
+
+  async function deleteAttachment(eventId, attachmentId) {
+    setAttachmentBusy(`${eventId}:${attachmentId}`);
+    setFeedback("Удаляю файл");
+
+    try {
+      const response = await fetch(
+        `/api/events/attachments?eventId=${encodeURIComponent(eventId)}&attachmentId=${encodeURIComponent(attachmentId)}`,
+        { method: "DELETE" },
+      );
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Не удалось удалить файл");
+      }
+
+      const nextEvents = sortEvents(payload.events);
+      eventsRef.current = nextEvents;
+      eventsLoadedRef.current = true;
+      setEvents(nextEvents);
+      setDeletedEvents(payload.deletedEvents || deletedEvents);
+      setFeedback("Файл удалён");
+    } catch (error) {
+      setFeedback(error.message);
+    } finally {
+      setAttachmentBusy("");
+    }
+  }
+
+  function renderAttachments(event, { readonly = false, writable = false } = {}) {
+    const attachments = event.attachments || [];
+    if (attachments.length === 0) return null;
+
+    return (
+      <div className="attachment-list">
+        {attachments.map((attachment) => (
+          <div className="attachment-item" key={attachment.id}>
+            <a
+              className="attachment-link"
+              href={`/api/events/attachments?eventId=${encodeURIComponent(event.id)}&attachmentId=${encodeURIComponent(attachment.id)}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <Download size={14} />
+              <span>{attachment.name}</span>
+              <small>{formatFileSize(attachment.size)}</small>
+            </a>
+            {!readonly && writable ? (
+              <button
+                className="attachment-delete-button"
+                type="button"
+                onClick={() => deleteAttachment(event.id, attachment.id)}
+                disabled={attachmentBusy === `${event.id}:${attachment.id}`}
+                aria-label="Удалить файл"
+                title="Удалить файл"
+              >
+                <X size={13} />
+              </button>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   function renderMonthGrid(cells, gridDate, { inert = false } = {}) {
     return (
       <div className="month-grid" aria-hidden={inert ? "true" : undefined}>
@@ -1085,7 +1296,16 @@ export default function CalendarPage() {
               Аккаунт
               <select
                 value={loginForm.accountId}
-                onChange={(event) => setLoginForm((current) => ({ ...current, accountId: event.target.value }))}
+                onChange={(event) => {
+                  const accountId = event.target.value;
+                  setGraphicChallenge(null);
+                  setLoginForm((current) => ({
+                    ...current,
+                    accountId,
+                    graphicChallengeId: "",
+                    graphicAnswer: [],
+                  }));
+                }}
               >
                 {accounts.map((person) => (
                   <option key={person.id} value={person.id}>
@@ -1105,6 +1325,14 @@ export default function CalendarPage() {
                 required
               />
             </label>
+
+            <GraphicPatternInput
+              busy={busy}
+              challenge={graphicChallenge}
+              value={loginForm.graphicAnswer}
+              onChange={(answer) => setLoginForm((current) => ({ ...current, graphicAnswer: answer }))}
+              onRefresh={() => refreshGraphicChallenge(loginForm.accountId).catch((error) => setFeedback(error.message))}
+            />
 
             <button className="save-button" type="submit" disabled={busy}>
               <LogIn size={18} />
@@ -1217,6 +1445,7 @@ export default function CalendarPage() {
                           {event.private ? <span className="private-pill">частное</span> : null}
                           <h3>{event.title}</h3>
                           {event.note ? <p>{event.note}</p> : null}
+                          {renderAttachments(event, { readonly: true })}
                           <p>
                             Удалил(а): {getActorName(event.deletedBy)} · {formatAuditDate(event.deletedAt)}
                           </p>
@@ -1360,6 +1589,7 @@ export default function CalendarPage() {
                       {event.private ? <span className="private-pill">частное</span> : null}
                       <h3>{event.title}</h3>
                       {event.note ? <p>{event.note}</p> : null}
+                      {renderAttachments(event, { writable: eventWritable })}
                       {hasRealHistory(event) ? (
                         <>
                           <button
@@ -1398,6 +1628,25 @@ export default function CalendarPage() {
                     </div>
                     {eventWritable ? (
                       <div className="row-actions">
+                        <label
+                          className={`icon-button subtle attachment-upload-button${
+                            attachmentBusy === event.id ? " disabled" : ""
+                          }`}
+                          aria-label="Прикрепить файл"
+                          title="Прикрепить файл"
+                        >
+                          <Paperclip size={17} />
+                          <input
+                            type="file"
+                            accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.png,.jpg,.jpeg,.webp"
+                            disabled={attachmentBusy === event.id}
+                            onChange={(inputEvent) => {
+                              const file = inputEvent.target.files?.[0];
+                              inputEvent.target.value = "";
+                              uploadAttachment(event.id, file);
+                            }}
+                          />
+                        </label>
                         <button className="icon-button subtle" type="button" onClick={() => startEdit(event)} aria-label="Редактировать">
                           <Pencil size={17} />
                         </button>

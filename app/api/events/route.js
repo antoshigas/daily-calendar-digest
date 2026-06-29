@@ -75,6 +75,7 @@ function cleanEvent(input, id, account, previousEvent = null) {
     createdAt: previousEvent?.createdAt || new Date().toISOString(),
     updatedBy: account.id,
     updatedAt: new Date().toISOString(),
+    attachments: previousEvent?.attachments || [],
     history: previousEvent?.history || [],
   };
 }
@@ -93,14 +94,32 @@ function assertWritableDate(dateKey, context) {
   }
 }
 
+function serializeAttachment(attachment) {
+  return {
+    id: attachment.id,
+    name: attachment.name,
+    type: attachment.type,
+    size: attachment.size,
+    uploadedBy: attachment.uploadedBy,
+    uploadedAt: attachment.uploadedAt,
+  };
+}
+
+function serializeEvent(event) {
+  return {
+    ...event,
+    attachments: (event.attachments || []).map(serializeAttachment),
+  };
+}
+
 function serializeEvents(events, account) {
-  return sortEvents(filterVisibleEvents(events, account.id));
+  return sortEvents(filterVisibleEvents(events, account.id)).map(serializeEvent);
 }
 
 function serializeDeletedEvents(events, account) {
-  return filterVisibleEvents(events, account.id).sort(
-    (left, right) => right.deletedAt.localeCompare(left.deletedAt) || left.date.localeCompare(right.date),
-  );
+  return filterVisibleEvents(events, account.id)
+    .sort((left, right) => right.deletedAt.localeCompare(left.deletedAt) || left.date.localeCompare(right.date))
+    .map(serializeEvent);
 }
 
 function fieldLabel(field) {

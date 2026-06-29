@@ -414,6 +414,120 @@ button:disabled {
   line-height: 1.35;
 }
 
+.graphic-challenge {
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid rgba(101, 243, 208, 0.24);
+  border-radius: 8px;
+  background: rgba(10, 16, 28, 0.26);
+}
+
+.graphic-challenge-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.graphic-challenge-head > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.graphic-challenge-head span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.graphic-challenge-head strong {
+  color: var(--accent-strong);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.72rem;
+}
+
+.graphic-link-button,
+.graphic-reset-button {
+  min-height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 0 10px;
+}
+
+.graphic-link-button:hover,
+.graphic-reset-button:hover {
+  border-color: rgba(101, 243, 208, 0.54);
+  color: var(--accent-strong);
+}
+
+.graphic-challenge-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 124px;
+  gap: 10px;
+  align-items: center;
+}
+
+.graphic-sample {
+  display: grid;
+  min-height: 118px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(10, 16, 28, 0.22);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.graphic-sample img {
+  display: block;
+  width: 100%;
+  max-width: 160px;
+  height: auto;
+}
+
+.graphic-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+
+.graphic-dot {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: #101426;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 0;
+}
+
+.graphic-dot:not(:disabled):hover {
+  border-color: rgba(255, 207, 109, 0.62);
+  background: rgba(255, 207, 109, 0.16);
+}
+
+.graphic-dot.selected {
+  border-color: rgba(101, 243, 208, 0.72);
+  background: var(--accent);
+}
+
+.graphic-reset-button {
+  width: 100%;
+}
+
 h1,
 h2,
 h3,
@@ -1014,6 +1128,80 @@ h3 {
   font-size: 0.72rem;
   font-weight: 800;
   padding: 0 9px;
+}
+
+.attachment-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.attachment-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 30px;
+  border: 1px solid rgba(101, 243, 208, 0.28);
+  border-radius: 8px;
+  background: rgba(101, 243, 208, 0.1);
+  color: var(--accent-strong);
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 0 8px;
+  text-decoration: none;
+}
+
+.attachment-link span {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-link small {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.62rem;
+}
+
+.attachment-delete-button {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid rgba(255, 116, 121, 0.38);
+  border-radius: 8px;
+  background: rgba(255, 116, 121, 0.12);
+  color: var(--danger);
+  padding: 0;
+}
+
+.attachment-upload-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.attachment-upload-button input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.attachment-upload-button.disabled {
+  opacity: 0.58;
+  pointer-events: none;
 }
 
 .history-block {
@@ -2065,5 +2253,29 @@ h3 {
   .clock-face {
     width: 274px;
     height: 274px;
+  }
+}
+
+@media (max-width: 420px) {
+  .auth-shell {
+    padding: 10px;
+  }
+
+  .auth-card {
+    padding: 14px;
+  }
+
+  .graphic-challenge-body {
+    grid-template-columns: 1fr;
+  }
+
+  .graphic-grid {
+    justify-content: center;
+    grid-template-columns: repeat(3, 42px);
+  }
+
+  .graphic-dot {
+    width: 42px;
+    height: 42px;
   }
 }
