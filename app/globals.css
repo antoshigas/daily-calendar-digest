@@ -2067,11 +2067,11 @@ h3 {
 }
 
 .month-strip.slide-next {
-  animation: monthSlideNext 340ms ease both;
+  animation: monthSlideNext 200ms ease both;
 }
 
 .month-strip.slide-previous {
-  animation: monthSlidePrevious 340ms ease both;
+  animation: monthSlidePrevious 200ms ease both;
 }
 
 @keyframes daySlideNext {

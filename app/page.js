@@ -876,7 +876,7 @@ export default function CalendarPage() {
 
     setMonthMotion(offset > 0 ? "slide-next" : "slide-previous");
     setViewDate((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
-    monthMotionTimerRef.current = window.setTimeout(() => setMonthMotion(""), 360);
+    monthMotionTimerRef.current = window.setTimeout(() => setMonthMotion(""), 220);
   }
 
   function selectDate(dateKey, { toggleSame = true } = {}) {
