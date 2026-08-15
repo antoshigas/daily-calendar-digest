@@ -53,7 +53,7 @@ const MINUTE_MARKERS = [
   { label: "30", value: 30 },
   { label: "45", value: 45 },
 ];
-const AUTO_REFRESH_MS = 6000;
+const AUTO_REFRESH_MS = 60000;
 const SWIPE_THRESHOLD = 56;
 const SWIPE_INTENT_RATIO = 1.15;
 const WHEEL_MONTH_THRESHOLD = 80;
