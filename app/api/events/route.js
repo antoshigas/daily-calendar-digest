@@ -44,23 +44,23 @@ function cleanEvent(input, id, account, previousEvent = null) {
   const privateRequested = Boolean(input.private);
 
   if (!DATE_PATTERN.test(date)) {
-    throw new Error("Неверная дата");
+    throw new Error("Невірна дата");
   }
 
   if (!TIME_PATTERN.test(time)) {
-    throw new Error("Неверное время");
+    throw new Error("Невірний час");
   }
 
   if (!isValidOwnerId(ownerId)) {
-    throw new Error("Выберите человека");
+    throw new Error("Оберіть людину");
   }
 
   if (!title) {
-    throw new Error("Введите дело");
+    throw new Error("Введіть справу");
   }
 
   if (privateRequested && (account.id !== "kristina" || ownerId !== "kristina")) {
-    throw new Error("Частные дела доступны только аккаунту Кристины и только для Кристины");
+    throw new Error("Приватні справи недоступні в цій версії");
   }
 
   return {
@@ -129,19 +129,19 @@ function serializeDeletedEvents(events, account) {
 function fieldLabel(field) {
   return {
     date: "дата",
-    time: "время",
-    ownerId: "человек",
-    title: "дело",
-    note: "заметка",
-    private: "частность",
+    time: "час",
+    ownerId: "людина",
+    title: "справа",
+    note: "нотатка",
+    private: "приватність",
   }[field];
 }
 
 function displayFieldValue(field, value) {
   if (field === "ownerId") return getPersonName(value);
-  if (field === "private") return value ? "частное" : "обычное";
-  if (field === "time") return value || "без времени";
-  return value || "пусто";
+  if (field === "private") return value ? "приватна" : "звичайна";
+  if (field === "time") return value || "без часу";
+  return value || "порожньо";
 }
 
 function buildChanges(previousEvent, nextEvent) {
@@ -177,7 +177,7 @@ function appendHistory(event, entry) {
 
 function assertEventVisible(event, account) {
   if (event.private && account.id !== "kristina") {
-    const error = new Error("Дело не найдено");
+    const error = new Error("Справу не знайдено");
     error.status = 404;
     throw error;
   }
@@ -206,7 +206,7 @@ export async function GET(request) {
       people: PEOPLE,
     });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Не удалось загрузить дела", getErrorStatus(error));
+    return jsonError(error instanceof Error ? error.message : "Не вдалося завантажити справи", getErrorStatus(error));
   }
 }
 
@@ -220,7 +220,7 @@ export async function POST(request) {
 
     const createdEvent = appendHistory(
       nextEvent,
-      createHistoryEntry("created", account, `Создал(а) ${account.name}`),
+      createHistoryEntry("created", account, `Створив(ла) ${account.name}`),
     );
     const events = await readEvents();
     const nextEvents = await writeEvents([...events, createdEvent]);
@@ -236,7 +236,7 @@ export async function POST(request) {
       { status: 201 },
     );
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Не удалось добавить", getErrorStatus(error));
+    return jsonError(error instanceof Error ? error.message : "Не вдалося додати", getErrorStatus(error));
   }
 }
 
@@ -247,14 +247,14 @@ export async function PUT(request) {
     const id = typeof input.id === "string" ? input.id : "";
 
     if (!id) {
-      return jsonError("Не найден id");
+      return jsonError("Не знайдено id");
     }
 
     const events = await readEvents();
     const index = events.findIndex((event) => event.id === id);
 
     if (index === -1) {
-      return jsonError("Дело не найдено", 404);
+      return jsonError("Справу не знайдено", 404);
     }
 
     assertEventVisible(events[index], account);
@@ -268,7 +268,7 @@ export async function PUT(request) {
     const eventToStore =
       Object.keys(changes).length === 0
         ? nextEvent
-        : appendHistory(nextEvent, createHistoryEntry("updated", account, `Изменил(а) ${account.name}`, changes));
+        : appendHistory(nextEvent, createHistoryEntry("updated", account, `Змінив(ла) ${account.name}`, changes));
     const nextEvents = [...events];
     nextEvents[index] = eventToStore;
     const storedEvents = await writeEvents(nextEvents);
@@ -281,7 +281,7 @@ export async function PUT(request) {
       deletedEvents: serializeDeletedEvents(deletedEvents, account),
     });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Не удалось сохранить", getErrorStatus(error));
+    return jsonError(error instanceof Error ? error.message : "Не вдалося зберегти", getErrorStatus(error));
   }
 }
 
@@ -292,14 +292,14 @@ export async function DELETE(request) {
     const id = url.searchParams.get("id");
 
     if (!id) {
-      return jsonError("Не найден id");
+      return jsonError("Не знайдено id");
     }
 
     const events = await readEvents();
     const target = events.find((event) => event.id === id);
 
     if (!target) {
-      return jsonError("Дело не найдено", 404);
+      return jsonError("Справу не знайдено", 404);
     }
 
     assertEventVisible(target, account);
@@ -316,7 +316,7 @@ export async function DELETE(request) {
         deletedBy: account.id,
         deletedAt,
       },
-      createHistoryEntry("deleted", account, `Удалил(а) ${account.name}`),
+      createHistoryEntry("deleted", account, `Видалив(ла) ${account.name}`),
     );
     const storedEvents = await writeEvents(events.filter((event) => event.id !== id));
     const storedDeletedEvents = await writeDeletedEvents([deletedRecord, ...(await readDeletedEvents())]);
@@ -327,6 +327,6 @@ export async function DELETE(request) {
       deletedEvents: serializeDeletedEvents(storedDeletedEvents, account),
     });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Не удалось удалить", getErrorStatus(error));
+    return jsonError(error instanceof Error ? error.message : "Не вдалося видалити", getErrorStatus(error));
   }
 }

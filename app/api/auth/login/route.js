@@ -26,6 +26,6 @@ export async function POST(request) {
   } catch (error) {
     const status = Number.isInteger(error?.status) ? error.status : 401;
     const retryAfter = Number.isInteger(error?.retryAfter) ? error.retryAfter : 0;
-    return jsonError(error instanceof Error ? error.message : "Не удалось войти", status, retryAfter);
+    return jsonError(error instanceof Error ? error.message : "Не вдалося увійти", status, retryAfter);
   }
 }

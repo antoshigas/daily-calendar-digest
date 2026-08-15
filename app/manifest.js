@@ -1,8 +1,8 @@
 export default function manifest() {
   return {
-    name: "Орбита дел",
-    short_name: "Орбита дел",
-    description: "Семейный календарь с Telegram-сводкой",
+    name: "Орбіта справ",
+    short_name: "Орбіта справ",
+    description: "Особистий календар із Telegram-зведенням",
     start_url: "/",
     scope: "/",
     display: "standalone",

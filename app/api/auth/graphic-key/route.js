@@ -13,7 +13,7 @@ export async function GET(request) {
 
     return Response.json({ ok: true, graphicKey });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Не удалось загрузить графический ключ", error?.status || 400);
+    return jsonError(error instanceof Error ? error.message : "Не вдалося завантажити графічний ключ", error?.status || 400);
   }
 }
 
@@ -26,7 +26,7 @@ export async function PUT(request) {
 
     return Response.json({ ok: true, graphicKey });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Не удалось сохранить графический ключ", error?.status || 400);
+    return jsonError(error instanceof Error ? error.message : "Не вдалося зберегти графічний ключ", error?.status || 400);
   }
 }
 
@@ -37,6 +37,6 @@ export async function DELETE(request) {
 
     return Response.json({ ok: true, graphicKey });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Не удалось отключить графический ключ", error?.status || 400);
+    return jsonError(error instanceof Error ? error.message : "Не вдалося вимкнути графічний ключ", error?.status || 400);
   }
 }

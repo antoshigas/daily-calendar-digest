@@ -1,13 +1,13 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Орбита дел",
-  description: "Семейный календарь с Telegram-рассылкой",
-  applicationName: "Орбита дел",
+  title: "Орбіта справ",
+  description: "Особистий календар із Telegram-розсилкою",
+  applicationName: "Орбіта справ",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
-    title: "Орбита дел",
+    title: "Орбіта справ",
     statusBarStyle: "black-translucent",
   },
   icons: {
@@ -26,7 +26,7 @@ export const viewport = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="ru">
+    <html lang="uk">
       <body>{children}</body>
     </html>
   );

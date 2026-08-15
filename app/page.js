@@ -40,7 +40,7 @@ import {
   keyToDate,
 } from "../lib/calendar.js";
 
-const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"];
 const HOUR_MARKERS = [
   { label: "00/24", value: 0 },
   { label: "03/15", value: 3 },
@@ -124,11 +124,11 @@ function buildSyncFeedback(previousEvents, nextEvents) {
   const added = nextEvents.filter((event) => !previousIds.has(event.id));
   const removed = previousEvents.filter((event) => !nextIds.has(event.id));
 
-  if (added.length === 1) return `Добавлено: ${added[0].title}`;
-  if (added.length > 1) return `Добавлено дел: ${added.length}`;
-  if (removed.length === 1) return `Удалено: ${removed[0].title}`;
-  if (removed.length > 1) return `Удалено дел: ${removed.length}`;
-  return "Дела обновлены";
+  if (added.length === 1) return `Додано: ${added[0].title}`;
+  if (added.length > 1) return `Додано справ: ${added.length}`;
+  if (removed.length === 1) return `Видалено: ${removed[0].title}`;
+  if (removed.length > 1) return `Видалено справ: ${removed.length}`;
+  return "Справи оновлено";
 }
 
 function hasRealHistory(event) {
@@ -138,7 +138,7 @@ function hasRealHistory(event) {
 function formatAuditDate(value) {
   if (!value) return "";
 
-  return new Intl.DateTimeFormat("ru-RU", {
+  return new Intl.DateTimeFormat("uk-UA", {
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",
@@ -147,7 +147,7 @@ function formatAuditDate(value) {
 }
 
 function getActorName(actorId) {
-  return PEOPLE.find((person) => person.id === actorId)?.name || "Кто-то";
+  return PEOPLE.find((person) => person.id === actorId)?.name || "Хтось";
 }
 
 function groupDeletedByDate(deletedEvents) {
@@ -170,7 +170,7 @@ function HistoryBlock({ event, compact = false }) {
             <span>{getActorName(entry.actorId)}</span>
             <span>{formatAuditDate(entry.at)}</span>
           </div>
-          <p>{entry.summary || (entry.type === "updated" ? "Изменение" : "Событие")}</p>
+          <p>{entry.summary || (entry.type === "updated" ? "Зміна" : "Подія")}</p>
           {Object.keys(entry.changes || {}).length > 0 ? (
             <ul>
               {Object.entries(entry.changes).map(([field, change]) => (
@@ -273,7 +273,7 @@ function keepFieldVisible(element) {
   }, 40);
 }
 
-function GraphicPatternInput({ value, onChange, disabled = false, label = "Графический ключ", hint = "" }) {
+function GraphicPatternInput({ value, onChange, disabled = false, label = "Графічний ключ", hint = "" }) {
   const gridRef = useRef(null);
   const drawingRef = useRef(false);
   const selected = Array.isArray(value) ? value : [];
@@ -371,7 +371,7 @@ function GraphicPatternInput({ value, onChange, disabled = false, label = "Гр�
 
       {hint ? <p className="pattern-hint">{hint}</p> : null}
       <button className="pattern-reset-button" type="button" onClick={() => onChange([])} disabled={disabled || selected.length === 0}>
-        Нарисовать заново
+        Намалювати заново
       </button>
     </div>
   );
@@ -486,10 +486,10 @@ function TimePicker({ value, onChange }) {
       </button>
 
       {open ? (
-        <div className="time-popover" role="dialog" aria-label="Выбор времени">
+        <div className="time-popover" role="dialog" aria-label="Вибір часу">
           <div className="time-popover-head">
             <div>
-              <div className="clock-display" aria-label="Выбранное время">
+              <div className="clock-display" aria-label="Вибраний час">
                 <button
                   className={`clock-display-part${mode === "hour" ? " active" : ""}`}
                   type="button"
@@ -506,24 +506,24 @@ function TimePicker({ value, onChange }) {
                   {draftMinute}
                 </button>
               </div>
-              <div className="clock-mode-tabs" role="group" aria-label="Режим выбора времени">
+              <div className="clock-mode-tabs" role="group" aria-label="Режим вибору часу">
                 <button
                   className={`clock-mode-tab${mode === "hour" ? " selected" : ""}`}
                   type="button"
                   onClick={() => setMode("hour")}
                 >
-                  Часы
+                  Години
                 </button>
                 <button
                   className={`clock-mode-tab${mode === "minute" ? " selected" : ""}`}
                   type="button"
                   onClick={() => setMode("minute")}
                 >
-                  Минуты
+                  Хвилини
                 </button>
               </div>
             </div>
-            <button className="icon-button subtle compact" type="button" onClick={() => setOpen(false)} aria-label="Закрыть">
+            <button className="icon-button subtle compact" type="button" onClick={() => setOpen(false)} aria-label="Закрити">
               <X size={16} />
             </button>
           </div>
@@ -532,7 +532,7 @@ function TimePicker({ value, onChange }) {
             className={`clock-face ${mode}`}
             ref={clockFaceRef}
             role="application"
-            aria-label={mode === "hour" ? "Круговой выбор часа" : "Круговой выбор минут"}
+            aria-label={mode === "hour" ? "Круговий вибір години" : "Круговий вибір хвилин"}
             onPointerDown={handleClockPointerDown}
             onPointerMove={handleClockPointerMove}
             onPointerUp={handleClockPointerUp}
@@ -540,7 +540,7 @@ function TimePicker({ value, onChange }) {
           >
             <div className="clock-hand" style={handStyle} aria-hidden="true" />
             <div className="clock-center">
-              <span>{mode === "hour" ? "час" : "мин"}</span>
+              <span>{mode === "hour" ? "год" : "хв"}</span>
               <strong>
                 {draftHour}:{draftMinute}
               </strong>
@@ -566,7 +566,7 @@ function TimePicker({ value, onChange }) {
 
           {mode === "minute" ? (
             <label className="minute-exact">
-              Точная минута
+              Точна хвилина
               <input
                 type="number"
                 min="0"
@@ -587,7 +587,7 @@ function TimePicker({ value, onChange }) {
                 setOpen(false);
               }}
             >
-              Без времени
+              Без часу
             </button>
             <button className="done-time-button" type="button" onClick={() => commitTime()}>
               Готово
@@ -659,7 +659,7 @@ export default function CalendarPage() {
     const payload = await response.json();
 
     if (!response.ok) {
-      throw new Error(payload.error || "Не удалось проверить вход");
+      throw new Error(payload.error || "Не вдалося перевірити вхід");
     }
 
     setAccount(payload.account || null);
@@ -681,7 +681,7 @@ export default function CalendarPage() {
         setAccount(null);
         setAuthReady(true);
       }
-      throw new Error(payload.error || "Не удалось загрузить дела");
+      throw new Error(payload.error || "Не вдалося завантажити справи");
     }
 
     const nextEvents = sortEvents(payload.events || []);
@@ -706,7 +706,7 @@ export default function CalendarPage() {
     const payload = await response.json();
 
     if (!response.ok) {
-      throw new Error(payload.error || "Не удалось загрузить графический ключ");
+      throw new Error(payload.error || "Не вдалося завантажити графічний ключ");
     }
 
     setGraphicKey(payload.graphicKey || { enabled: false, minLength: 4 });
@@ -1049,7 +1049,7 @@ export default function CalendarPage() {
     event.preventDefault();
     const selectedAccount = accounts.find((person) => person.id === loginForm.accountId);
     if (selectedAccount?.graphicKeyEnabled && loginForm.graphicPattern.length < 4) {
-      setFeedback("Нарисуйте графический ключ");
+      setFeedback("Намалюйте графічний ключ");
       return;
     }
 
@@ -1065,7 +1065,7 @@ export default function CalendarPage() {
       const payload = await response.json();
 
       if (!response.ok) {
-        throw new Error(payload.error || "Не удалось войти");
+        throw new Error(payload.error || "Не вдалося увійти");
       }
 
       setAccount(payload.account);
@@ -1099,7 +1099,7 @@ export default function CalendarPage() {
       setGraphicKey({ enabled: false, minLength: 4 });
       setSecurityOpen(false);
       setSecurityPattern([]);
-      setFeedback("Вы вышли");
+      setFeedback("Ви вийшли");
     } catch (error) {
       setFeedback(error.message);
     } finally {
@@ -1120,7 +1120,7 @@ export default function CalendarPage() {
     }
 
     setBusy(true);
-    setFeedback("Сохраняю");
+    setFeedback("Зберігаю");
 
     try {
       const method = editingId ? "PUT" : "POST";
@@ -1132,7 +1132,7 @@ export default function CalendarPage() {
       const payload = await response.json();
 
       if (!response.ok) {
-        throw new Error(payload.error || "Не удалось сохранить");
+        throw new Error(payload.error || "Не вдалося зберегти");
       }
 
       const nextEvents = sortEvents(payload.events);
@@ -1159,7 +1159,7 @@ export default function CalendarPage() {
       resetForm(form.date);
       selectDate(form.date, { toggleSame: false });
       setFormOpen(false);
-      setFeedback("Сохранено");
+      setFeedback("Збережено");
     } catch (error) {
       setFeedback(error.message);
     } finally {
@@ -1177,7 +1177,7 @@ export default function CalendarPage() {
     }
 
     setBusy(true);
-    setFeedback("Удаляю");
+    setFeedback("Видаляю");
 
     try {
       const response = await fetch(`/api/events?id=${encodeURIComponent(id)}`, {
@@ -1187,7 +1187,7 @@ export default function CalendarPage() {
       const payload = await response.json();
 
       if (!response.ok) {
-        throw new Error(payload.error || "Не удалось удалить");
+        throw new Error(payload.error || "Не вдалося видалити");
       }
 
       const nextEvents = sortEvents(payload.events);
@@ -1197,7 +1197,7 @@ export default function CalendarPage() {
       setDeletedEvents(payload.deletedEvents || deletedEvents);
       if (editingId === id) resetForm();
       setDeletingId(null);
-      setFeedback("Удалено");
+      setFeedback("Видалено");
     } catch (error) {
       setFeedback(error.message);
     } finally {
@@ -1209,7 +1209,7 @@ export default function CalendarPage() {
     if (!file) return;
 
     setAttachmentBusy(eventId);
-    if (showFeedback) setFeedback("Загружаю файл");
+    if (showFeedback) setFeedback("Завантажую файл");
 
     try {
       const formData = new FormData();
@@ -1223,7 +1223,7 @@ export default function CalendarPage() {
       const payload = await response.json();
 
       if (!response.ok) {
-        throw new Error(payload.error || "Не удалось прикрепить файл");
+        throw new Error(payload.error || "Не вдалося прикріпити файл");
       }
 
       const nextEvents = sortEvents(payload.events);
@@ -1231,7 +1231,7 @@ export default function CalendarPage() {
       eventsLoadedRef.current = true;
       setEvents(nextEvents);
       setDeletedEvents(payload.deletedEvents || deletedEvents);
-      if (showFeedback) setFeedback("Файл прикреплён");
+      if (showFeedback) setFeedback("Файл прикріплено");
       return payload;
     } catch (error) {
       setFeedback(error.message);
@@ -1243,7 +1243,7 @@ export default function CalendarPage() {
 
   async function deleteAttachment(eventId, attachmentId, { showFeedback = true } = {}) {
     setAttachmentBusy(`${eventId}:${attachmentId}`);
-    if (showFeedback) setFeedback("Убираю файл");
+    if (showFeedback) setFeedback("Прибираю файл");
 
     try {
       const response = await fetch(
@@ -1253,7 +1253,7 @@ export default function CalendarPage() {
       const payload = await response.json();
 
       if (!response.ok) {
-        throw new Error(payload.error || "Не удалось убрать файл");
+        throw new Error(payload.error || "Не вдалося прибрати файл");
       }
 
       const nextEvents = sortEvents(payload.events);
@@ -1261,7 +1261,7 @@ export default function CalendarPage() {
       eventsLoadedRef.current = true;
       setEvents(nextEvents);
       setDeletedEvents(payload.deletedEvents || deletedEvents);
-      if (showFeedback) setFeedback("Файл убран");
+      if (showFeedback) setFeedback("Файл прибрано");
       return payload;
     } catch (error) {
       setFeedback(error.message);
@@ -1274,12 +1274,12 @@ export default function CalendarPage() {
   async function saveGraphicKey(event) {
     event.preventDefault();
     if (securityPattern.length < (graphicKey.minLength || 4)) {
-      setFeedback("Графический ключ должен содержать минимум 4 точки");
+      setFeedback("Графічний ключ має містити щонайменше 4 точки");
       return;
     }
 
     setBusy(true);
-    setFeedback("Сохраняю ключ");
+    setFeedback("Зберігаю ключ");
 
     try {
       const response = await fetch("/api/auth/graphic-key", {
@@ -1290,7 +1290,7 @@ export default function CalendarPage() {
       const payload = await response.json();
 
       if (!response.ok) {
-        throw new Error(payload.error || "Не удалось сохранить графический ключ");
+        throw new Error(payload.error || "Не вдалося зберегти графічний ключ");
       }
 
       setGraphicKey(payload.graphicKey || { enabled: true, minLength: 4 });
@@ -1298,7 +1298,7 @@ export default function CalendarPage() {
         current.map((person) => (person.id === account.id ? { ...person, graphicKeyEnabled: true } : person)),
       );
       setSecurityPattern([]);
-      setFeedback("Графический ключ сохранён");
+      setFeedback("Графічний ключ збережено");
     } catch (error) {
       setFeedback(error.message);
     } finally {
@@ -1308,14 +1308,14 @@ export default function CalendarPage() {
 
   async function disableGraphicKey() {
     setBusy(true);
-    setFeedback("Отключаю ключ");
+    setFeedback("Вимикаю ключ");
 
     try {
       const response = await fetch("/api/auth/graphic-key", { method: "DELETE" });
       const payload = await response.json();
 
       if (!response.ok) {
-        throw new Error(payload.error || "Не удалось отключить графический ключ");
+        throw new Error(payload.error || "Не вдалося вимкнути графічний ключ");
       }
 
       setGraphicKey(payload.graphicKey || { enabled: false, minLength: 4 });
@@ -1323,7 +1323,7 @@ export default function CalendarPage() {
         current.map((person) => (person.id === account.id ? { ...person, graphicKeyEnabled: false } : person)),
       );
       setSecurityPattern([]);
-      setFeedback("Графический ключ отключён");
+      setFeedback("Графічний ключ вимкнено");
     } catch (error) {
       setFeedback(error.message);
     } finally {
@@ -1361,7 +1361,7 @@ export default function CalendarPage() {
 
     return (
       <div className="removed-attachments">
-        <h4>Убранные документы</h4>
+        <h4>Прибрані документи</h4>
         <div className="attachment-list">
           {attachments.map((attachment) => (
             <div className="attachment-item removed" key={`removed-${attachment.id}`}>
@@ -1392,9 +1392,9 @@ export default function CalendarPage() {
     return (
       <div className="form-attachments">
         <div className="form-attachments-head">
-          <span>Документы</span>
+          <span>Документи</span>
           <label className="file-pick-button">
-            Добавить файл
+            Додати файл
             <input
               type="file"
               accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.png,.jpg,.jpeg,.webp"
@@ -1411,7 +1411,7 @@ export default function CalendarPage() {
         </div>
 
         {visibleAttachments.length === 0 && pendingFiles.length === 0 ? (
-          <p className="form-attachments-empty">Файлов нет</p>
+          <p className="form-attachments-empty">Файлів немає</p>
         ) : null}
 
         {visibleAttachments.length > 0 ? (
@@ -1505,8 +1505,8 @@ export default function CalendarPage() {
         <main className="auth-shell">
           <div className="auth-card">
             <ShieldCheck size={28} />
-            <h1>Орбита дел</h1>
-            <p>Проверяю вход</p>
+            <h1>Орбіта справ</h1>
+            <p>Перевіряю вхід</p>
           </div>
         </main>
       </>
@@ -1521,12 +1521,12 @@ export default function CalendarPage() {
           <form className="auth-card" onSubmit={login}>
             <ShieldCheck size={30} />
             <div>
-              <h1>Орбита дел</h1>
-              <p>Существующий аккаунт</p>
+              <h1>Орбіта справ</h1>
+              <p>Ваш акаунт</p>
             </div>
 
             <label>
-              Аккаунт
+              Акаунт
               <select
                 value={loginForm.accountId}
                 onChange={(event) => {
@@ -1562,13 +1562,13 @@ export default function CalendarPage() {
                 disabled={busy}
                 value={loginForm.graphicPattern}
                 onChange={(pattern) => setLoginForm((current) => ({ ...current, graphicPattern: pattern }))}
-                hint="Нарисуйте личный ключ этого аккаунта"
+                hint="Намалюйте особистий ключ цього акаунта"
               />
             ) : null}
 
             <button className="save-button" type="submit" disabled={busy}>
               <LogIn size={18} />
-              Войти
+              Увійти
             </button>
 
             {feedback ? <div className="auth-feedback">{feedback}</div> : null}
@@ -1587,7 +1587,7 @@ export default function CalendarPage() {
         <section
           className="calendar-panel"
           ref={calendarPanelRef}
-          aria-label="Календарь"
+          aria-label="Календар"
           onTouchStart={(event) => {
             if (viewMode !== "calendar") {
               swipeStartX.current = null;
@@ -1616,8 +1616,8 @@ export default function CalendarPage() {
                 <CalendarDays size={22} strokeWidth={2.2} />
               </span>
               <div>
-                <h1>Орбита дел</h1>
-                <p>Семейный календарь</p>
+                <h1>Орбіта справ</h1>
+                <p>Особистий календар</p>
               </div>
             </div>
             <div className="account-bar">
@@ -1629,8 +1629,8 @@ export default function CalendarPage() {
                 className={`icon-button subtle${securityOpen ? " active-control" : ""}`}
                 type="button"
                 onClick={() => setSecurityOpen((current) => !current)}
-                aria-label="Графический ключ"
-                title="Графический ключ"
+                aria-label="Графічний ключ"
+                title="Графічний ключ"
               >
                 <KeyRound size={17} />
               </button>
@@ -1638,12 +1638,12 @@ export default function CalendarPage() {
                 className={`icon-button subtle${viewMode === "deleted" ? " active-control" : ""}`}
                 type="button"
                 onClick={toggleDeletedView}
-                aria-label="Удалённые дела"
-                title="Удалённые дела"
+                aria-label="Видалені справи"
+                title="Видалені справи"
               >
                 <Archive size={17} />
               </button>
-              <button className="icon-button subtle" type="button" onClick={logout} aria-label="Выйти" title="Выйти">
+              <button className="icon-button subtle" type="button" onClick={logout} aria-label="Вийти" title="Вийти">
                 <LogOut size={17} />
               </button>
             </div>
@@ -1652,24 +1652,24 @@ export default function CalendarPage() {
           {securityOpen ? (
             <form className="security-panel" onSubmit={saveGraphicKey}>
               <div>
-                <h2>Графический ключ</h2>
-                <p>{graphicKey.enabled ? "Включён для этого аккаунта" : "Можно добавить как второй шаг входа"}</p>
+                <h2>Графічний ключ</h2>
+                <p>{graphicKey.enabled ? "Увімкнено для цього акаунта" : "Можна додати як другий крок входу"}</p>
               </div>
               <GraphicPatternInput
                 disabled={busy}
                 value={securityPattern}
                 onChange={setSecurityPattern}
-                label={graphicKey.enabled ? "Новый ключ" : "Создать ключ"}
-                hint="Минимум 4 точки. Нарисуйте жестом, как на телефоне."
+                label={graphicKey.enabled ? "Новий ключ" : "Створити ключ"}
+                hint="Мінімум 4 точки. Намалюйте жестом, як на телефоні."
               />
               <div className="security-actions">
                 <button className="save-button" type="submit" disabled={busy || securityPattern.length < 4}>
                   <Check size={17} />
-                  Сохранить ключ
+                  Зберегти ключ
                 </button>
                 {graphicKey.enabled ? (
                   <button className="delete-cancel-button" type="button" onClick={disableGraphicKey} disabled={busy}>
-                    Отключить
+                    Вимкнути
                   </button>
                 ) : null}
               </div>
@@ -1677,11 +1677,11 @@ export default function CalendarPage() {
           ) : null}
 
           {securityOpen ? null : viewMode === "deleted" ? (
-            <section className="deleted-view" aria-label="Удалённые дела">
+            <section className="deleted-view" aria-label="Видалені справи">
               <div className="deleted-head">
                 <div>
-                  <p>Архив</p>
-                  <h2>Удалённые дела</h2>
+                  <p>Архів</p>
+                  <h2>Видалені справи</h2>
                 </div>
                 <div className="details-header-actions">
                   <span className="count-badge">{deletedEvents.length}</span>
@@ -1689,15 +1689,15 @@ export default function CalendarPage() {
                     className="icon-button subtle"
                     type="button"
                     onClick={toggleDeletedView}
-                    aria-label="Вернуться к календарю"
-                    title="Вернуться к календарю"
+                    aria-label="Повернутися до календаря"
+                    title="Повернутися до календаря"
                   >
                     <X size={18} />
                   </button>
                 </div>
               </div>
 
-              {deletedEvents.length === 0 ? <p className="empty-state">Удалённых дел нет</p> : null}
+              {deletedEvents.length === 0 ? <p className="empty-state">Видалених справ немає</p> : null}
 
               <div className="deleted-list">
                 {Object.entries(deletedByDate).map(([dateKey, items]) => (
@@ -1710,13 +1710,13 @@ export default function CalendarPage() {
                           <span className={`owner-pill owner-${event.ownerId || DEFAULT_OWNER_ID}`}>
                             {getPersonName(event.ownerId)}
                           </span>
-                          {event.private ? <span className="private-pill">частное</span> : null}
+                          {event.private ? <span className="private-pill">приватна</span> : null}
                           <h3>{event.title}</h3>
                           {event.note ? <p>{event.note}</p> : null}
                           {renderAttachments(event)}
                           {renderRemovedAttachments(event)}
                           <p>
-                            Удалил(а): {getActorName(event.deletedBy)} · {formatAuditDate(event.deletedAt)}
+                            Видалив(ла): {getActorName(event.deletedBy)} · {formatAuditDate(event.deletedAt)}
                           </p>
                           <HistoryBlock event={event} />
                         </div>
@@ -1734,8 +1734,8 @@ export default function CalendarPage() {
                 className="icon-button subtle mobile-month-nav"
                 type="button"
                 onClick={() => moveMonth(-1)}
-                aria-label="Предыдущий месяц"
-                title="Предыдущий месяц"
+                aria-label="Попередній місяць"
+                title="Попередній місяць"
               >
                 <ChevronLeft size={18} />
               </button>
@@ -1744,15 +1744,15 @@ export default function CalendarPage() {
                 className="icon-button subtle mobile-month-nav"
                 type="button"
                 onClick={() => moveMonth(1)}
-                aria-label="Следующий месяц"
-                title="Следующий месяц"
+                aria-label="Наступний місяць"
+                title="Наступний місяць"
               >
                 <ChevronRight size={18} />
               </button>
             </div>
-            <div className="month-controls" aria-label="Навигация по месяцам">
+            <div className="month-controls" aria-label="Навігація місяцями">
               <button className="today-button" type="button" onClick={jumpToday}>
-                К сегодня
+                До сьогодні
               </button>
             </div>
             <div className="month-actions">
@@ -1760,8 +1760,8 @@ export default function CalendarPage() {
                 className={`icon-button subtle${detailsOpen ? " active-control" : ""}`}
                 type="button"
                 onClick={() => setDetailsOpen((current) => !current)}
-                aria-label={detailsOpen ? "Скрыть детали дня" : "Показать детали дня"}
-                title={detailsOpen ? "Скрыть детали дня" : "Показать детали дня"}
+                aria-label={detailsOpen ? "Сховати деталі дня" : "Показати деталі дня"}
+                title={detailsOpen ? "Сховати деталі дня" : "Показати деталі дня"}
               >
                 {detailsOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
               </button>
@@ -1770,10 +1770,10 @@ export default function CalendarPage() {
 
           {feedback ? <div className="feedback-line">{feedback}</div> : null}
 
-          <button className="calendar-side-nav previous" type="button" onClick={() => moveMonth(-1)} aria-label="Предыдущий месяц">
+          <button className="calendar-side-nav previous" type="button" onClick={() => moveMonth(-1)} aria-label="Попередній місяць">
             <ChevronLeft size={22} />
           </button>
-          <button className="calendar-side-nav next" type="button" onClick={() => moveMonth(1)} aria-label="Следующий месяц">
+          <button className="calendar-side-nav next" type="button" onClick={() => moveMonth(1)} aria-label="Наступний місяць">
             <ChevronRight size={22} />
           </button>
 
@@ -1798,7 +1798,7 @@ export default function CalendarPage() {
           <aside
             className={`details-panel${formOpen ? " form-open" : ""}${dayMotion ? ` ${dayMotion}` : ""}`}
             ref={detailsPanelRef}
-            aria-label="Дела на выбранный день"
+            aria-label="Справи на вибраний день"
             onTouchStart={handleDayTouchStart}
             onTouchEnd={(event) => {
               handleDaySwipeEnd(event.changedTouches[0]?.clientX ?? 0, event.changedTouches[0]?.clientY ?? 0);
@@ -1810,17 +1810,17 @@ export default function CalendarPage() {
           >
             <div className="details-header">
               <div>
-                <p>Выбранный день</p>
+                <p>Вибраний день</p>
                 <h2>{formatDisplayDate(selectedDate)}</h2>
               </div>
               <div className="details-header-actions">
-                <div className="day-nav-group" aria-label="Навигация по дням">
+                <div className="day-nav-group" aria-label="Навігація днями">
                   <button
                     className="icon-button subtle"
                     type="button"
                     onClick={() => moveSelectedDay(-1)}
-                    aria-label="Предыдущий день"
-                    title="Предыдущий день"
+                    aria-label="Попередній день"
+                    title="Попередній день"
                   >
                     <ChevronLeft size={18} />
                   </button>
@@ -1828,14 +1828,14 @@ export default function CalendarPage() {
                     className="icon-button subtle"
                     type="button"
                     onClick={() => moveSelectedDay(1)}
-                    aria-label="Следующий день"
-                    title="Следующий день"
+                    aria-label="Наступний день"
+                    title="Наступний день"
                   >
                     <ChevronRight size={18} />
                   </button>
                 </div>
                 <span className="count-badge">{selectedEvents.length}</span>
-                <button className="icon-button subtle" type="button" onClick={closeDetails} aria-label="Скрыть детали дня" title="Скрыть детали дня">
+                <button className="icon-button subtle" type="button" onClick={closeDetails} aria-label="Сховати деталі дня" title="Сховати деталі дня">
                   <PanelRightClose size={18} />
                 </button>
               </div>
@@ -1843,7 +1843,7 @@ export default function CalendarPage() {
 
             <div className="event-list">
               {selectedEvents.length === 0 ? (
-                <p className="empty-state">Дел нет</p>
+                <p className="empty-state">Справ немає</p>
               ) : null}
               {selectedEvents.map((event) => {
                 const eventWritable = isWritableDateKey(event.date, dateContext);
@@ -1855,7 +1855,7 @@ export default function CalendarPage() {
                       <span className={`owner-pill owner-${event.ownerId || DEFAULT_OWNER_ID}`}>
                         {getPersonName(event.ownerId)}
                       </span>
-                      {event.private ? <span className="private-pill">частное</span> : null}
+                      {event.private ? <span className="private-pill">приватна</span> : null}
                       <h3>{event.title}</h3>
                       {event.note ? <p>{event.note}</p> : null}
                       {renderAttachments(event)}
@@ -1869,7 +1869,7 @@ export default function CalendarPage() {
                             }
                           >
                             <History size={15} />
-                            История
+                            Історія
                           </button>
                           {expandedHistoryId === event.id ? <HistoryBlock event={event} compact /> : null}
                           {expandedHistoryId === event.id ? renderRemovedAttachments(event) : null}
@@ -1878,10 +1878,10 @@ export default function CalendarPage() {
 
                       {deletingId === event.id ? (
                         <form className="delete-form" onSubmit={(formEvent) => deleteEvent(formEvent, event.id)}>
-                          <p>Удалить это дело? Оно уйдёт в список удалённых вместе с историей.</p>
+                          <p>Видалити цю справу? Вона піде до списку видалених разом з історією.</p>
                           <div className="delete-actions">
                             <button className="delete-confirm-button" type="submit" disabled={busy}>
-                              Удалить
+                              Видалити
                             </button>
                             <button
                               className="delete-cancel-button"
@@ -1890,7 +1890,7 @@ export default function CalendarPage() {
                                 setDeletingId(null);
                               }}
                             >
-                              Отмена
+                              Скасувати
                             </button>
                           </div>
                         </form>
@@ -1898,7 +1898,7 @@ export default function CalendarPage() {
                     </div>
                     {eventWritable ? (
                       <div className="row-actions">
-                        <button className="icon-button subtle" type="button" onClick={() => startEdit(event)} aria-label="Редактировать">
+                        <button className="icon-button subtle" type="button" onClick={() => startEdit(event)} aria-label="Редагувати">
                           <Pencil size={17} />
                         </button>
                         <button
@@ -1907,7 +1907,7 @@ export default function CalendarPage() {
                           onClick={() => {
                             setDeletingId(event.id);
                           }}
-                          aria-label="Удалить"
+                          aria-label="Видалити"
                         >
                           <Trash2 size={17} />
                         </button>
@@ -1922,8 +1922,8 @@ export default function CalendarPage() {
               formOpen ? (
               <form className="event-form" onSubmit={saveEvent}>
                 <div className="form-heading">
-                  <h2>{editingId ? "Редактировать" : "Добавить"}</h2>
-                  <button className="icon-button subtle" type="button" onClick={() => resetForm()} aria-label="Скрыть форму">
+                  <h2>{editingId ? "Редагувати" : "Додати"}</h2>
+                  <button className="icon-button subtle" type="button" onClick={() => resetForm()} aria-label="Сховати форму">
                     <X size={18} />
                   </button>
                 </div>
@@ -1951,8 +1951,8 @@ export default function CalendarPage() {
                 </label>
 
                 <div className="owner-field">
-                  <span>Человек</span>
-                  <div className="owner-picker" role="radiogroup" aria-label="Человек">
+                  <span>Людина</span>
+                  <div className="owner-picker" role="radiogroup" aria-label="Людина">
                     {PEOPLE.map((person) => (
                       <button
                         className={`owner-option owner-${person.id}${form.ownerId === person.id ? " selected" : ""}`}
@@ -1985,13 +1985,13 @@ export default function CalendarPage() {
                     />
                     <span>
                       <EyeOff size={17} />
-                      Частное дело
+                      Приватна справа
                     </span>
                   </label>
                 ) : null}
 
                 <div className="form-field">
-                  <span>Время</span>
+                  <span>Час</span>
                   <TimePicker
                     value={form.time}
                     onChange={(time) => setForm((current) => ({ ...current, time }))}
@@ -1999,7 +1999,7 @@ export default function CalendarPage() {
                 </div>
 
                 <label>
-                  Дело
+                  Справа
                   <input
                     type="text"
                     value={form.title}
@@ -2010,7 +2010,7 @@ export default function CalendarPage() {
                 </label>
 
                 <label>
-                  Заметка
+                  Нотатка
                   <textarea
                     value={form.note}
                     onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))}
@@ -2023,20 +2023,20 @@ export default function CalendarPage() {
 
                 <button className="save-button" type="submit" disabled={busy}>
                   {editingId ? <Check size={18} /> : <Plus size={18} />}
-                  {editingId ? "Сохранить" : "Добавить"}
+                  {editingId ? "Зберегти" : "Додати"}
                 </button>
               </form>
               ) : (
                 <div className="add-event-panel">
                   <button className="add-event-button" type="button" onClick={openCreateForm}>
                     <Plus size={18} />
-                    Добавить дело
+                    Додати справу
                   </button>
                 </div>
               )
             ) : (
               <div className="readonly-note">
-                <h2>Только просмотр</h2>
+                <h2>Лише перегляд</h2>
                 <p>{selectedLockReason}</p>
               </div>
             )}

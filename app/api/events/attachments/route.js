@@ -41,7 +41,7 @@ function getErrorStatus(error) {
 
 function assertBlobConfigured() {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    const error = new Error("Хранилище документов ещё не подключено. В Vercel нужен Blob store.");
+    const error = new Error("Сховище документів ще не підключено. У Vercel потрібен Blob store.");
     error.status = 501;
     throw error;
   }
@@ -63,7 +63,7 @@ function assertWritableDate(dateKey, context) {
 
 function assertEventVisible(event, account) {
   if (event.private && account.id !== "kristina") {
-    const error = new Error("Дело не найдено");
+    const error = new Error("Справу не знайдено");
     error.status = 404;
     throw error;
   }
@@ -179,12 +179,12 @@ export async function GET(request) {
       findAttachmentEvent(deletedEvents, eventId, attachmentId, account);
 
     if (!found) {
-      return jsonError("Файл не найден", 404);
+      return jsonError("Файл не знайдено", 404);
     }
 
     const blobResponse = await fetch(found.attachment.blobUrl, { cache: "no-store" });
     if (!blobResponse.ok) {
-      return jsonError("Файл не удалось загрузить из хранилища", 502);
+      return jsonError("Файл не вдалося завантажити зі сховища", 502);
     }
 
     const encrypted = Buffer.from(await blobResponse.arrayBuffer());
@@ -199,7 +199,7 @@ export async function GET(request) {
       },
     });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Не удалось скачать файл", getErrorStatus(error));
+    return jsonError(error instanceof Error ? error.message : "Не вдалося завантажити файл", getErrorStatus(error));
   }
 }
 
@@ -212,26 +212,26 @@ export async function POST(request) {
     const file = formData.get("file");
 
     if (!eventId) {
-      return jsonError("Не найдено дело");
+      return jsonError("Не знайдено справу");
     }
 
     if (!file || typeof file.arrayBuffer !== "function") {
-      return jsonError("Выберите файл");
+      return jsonError("Оберіть файл");
     }
 
     if (file.size > MAX_ATTACHMENT_SIZE) {
-      return jsonError("Файл слишком большой. Сейчас лимит 4 МБ.");
+      return jsonError("Файл завеликий. Наразі ліміт 4 МБ.");
     }
 
     const fileType = file.type || "application/octet-stream";
     if (!ALLOWED_ATTACHMENT_TYPES.has(fileType)) {
-      return jsonError("Этот тип файла пока не разрешён");
+      return jsonError("Цей тип файлу поки не дозволено");
     }
 
     const events = await readEvents();
     const index = events.findIndex((event) => event.id === eventId);
     if (index === -1) {
-      return jsonError("Дело не найдено", 404);
+      return jsonError("Справу не знайдено", 404);
     }
 
     const target = events[index];
@@ -266,7 +266,7 @@ export async function POST(request) {
       updatedAt: now,
       history: [
         ...(target.history || []),
-        createHistoryEntry("attachment-added", account, `Прикрепил(а) файл: ${attachment.name}`),
+        createHistoryEntry("attachment-added", account, `Прикріпив(ла) файл: ${attachment.name}`),
       ],
     };
     const nextEvents = [...events];
@@ -281,7 +281,7 @@ export async function POST(request) {
       deletedEvents: serializeDeletedEvents(deletedEvents, account),
     });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Не удалось прикрепить файл", getErrorStatus(error));
+    return jsonError(error instanceof Error ? error.message : "Не вдалося прикріпити файл", getErrorStatus(error));
   }
 }
 
@@ -295,7 +295,7 @@ export async function DELETE(request) {
     const index = events.findIndex((event) => event.id === eventId);
 
     if (index === -1) {
-      return jsonError("Дело не найдено", 404);
+      return jsonError("Справу не знайдено", 404);
     }
 
     const target = events[index];
@@ -304,7 +304,7 @@ export async function DELETE(request) {
 
     const attachment = (target.attachments || []).find((item) => item.id === attachmentId);
     if (!attachment) {
-      return jsonError("Файл не найден", 404);
+      return jsonError("Файл не знайдено", 404);
     }
 
     const now = new Date().toISOString();
@@ -321,7 +321,7 @@ export async function DELETE(request) {
       updatedAt: now,
       history: [
         ...(target.history || []),
-        createHistoryEntry("attachment-deleted", account, `Убрал(а) файл из дела: ${attachment.name}`),
+        createHistoryEntry("attachment-deleted", account, `Прибрав(ла) файл зі справи: ${attachment.name}`),
       ],
     };
     const nextEvents = [...events];
@@ -336,6 +336,6 @@ export async function DELETE(request) {
       deletedEvents: serializeDeletedEvents(deletedEvents, account),
     });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Не удалось убрать файл", getErrorStatus(error));
+    return jsonError(error instanceof Error ? error.message : "Не вдалося прибрати файл", getErrorStatus(error));
   }
 }
