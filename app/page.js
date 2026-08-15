@@ -1675,7 +1675,7 @@ export default function CalendarPage() {
             </form>
           ) : null}
 
-          {viewMode === "deleted" ? (
+          {securityOpen ? null : viewMode === "deleted" ? (
             <section className="deleted-view" aria-label="Удалённые дела">
               <div className="deleted-head">
                 <div>
@@ -1793,7 +1793,7 @@ export default function CalendarPage() {
           )}
         </section>
 
-        {viewMode === "calendar" && detailsOpen ? (
+        {!securityOpen && viewMode === "calendar" && detailsOpen ? (
           <aside
             className={`details-panel${formOpen ? " form-open" : ""}${dayMotion ? ` ${dayMotion}` : ""}`}
             ref={detailsPanelRef}
