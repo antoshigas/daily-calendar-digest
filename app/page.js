@@ -926,6 +926,7 @@ export default function CalendarPage() {
   }
 
   function toggleDeletedView() {
+    setSecurityOpen(false);
     setDetailsOpen(false);
     setFormOpen(false);
     setEditingId(null);
