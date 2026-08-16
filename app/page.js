@@ -63,6 +63,19 @@ const WHEEL_MONTH_THRESHOLD = 80;
 const WHEEL_MONTH_COOLDOWN_MS = 650;
 const FOCUS_SCROLL_DELAY_MS = 120;
 const GRAPHIC_DOTS = Array.from({ length: 9 }, (_, index) => index);
+const MAX_ATTACHMENTS_PER_EVENT = 4;
+const MAX_ATTACHMENT_SIZE = 2 * 1024 * 1024;
+const ALLOWED_ATTACHMENT_TYPES = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/plain",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
 const REPEAT_PRESETS = [
   { id: "none", label: "Нет" },
   { id: "day", label: "Каждый день" },
@@ -1471,13 +1484,38 @@ export default function CalendarPage() {
               onChange={(inputEvent) => {
                 const files = Array.from(inputEvent.target.files || []);
                 inputEvent.target.value = "";
-                if (files.length > 0) {
-                  setPendingFiles((current) => [...current, ...files]);
+                if (files.length === 0) return;
+
+                let problem = "";
+                const validFiles = files.filter((file) => {
+                  if (!ALLOWED_ATTACHMENT_TYPES.has(file.type || "")) {
+                    problem = `«${file.name}» не подходит: можно PDF, Word, Excel, txt и картинки`;
+                    return false;
+                  }
+                  if (file.size > MAX_ATTACHMENT_SIZE) {
+                    problem = `«${file.name}» больше 2 МБ`;
+                    return false;
+                  }
+                  return true;
+                });
+
+                const usedSlots = visibleAttachments.length + pendingFiles.length;
+                const freeSlots = Math.max(0, MAX_ATTACHMENTS_PER_EVENT - usedSlots);
+                if (validFiles.length > freeSlots) {
+                  problem = "К одному делу можно не больше 4 файлов";
+                  validFiles.length = freeSlots;
+                }
+
+                if (problem) setFeedback(problem);
+                if (validFiles.length > 0) {
+                  setPendingFiles((current) => [...current, ...validFiles]);
                 }
               }}
             />
           </label>
         </div>
+
+        <p className="form-attachments-note">До 4 файлов, каждый до 2 МБ. PDF, Word, Excel, txt и картинки.</p>
 
         {visibleAttachments.length === 0 && pendingFiles.length === 0 ? (
           <p className="form-attachments-empty">Файлов нет</p>

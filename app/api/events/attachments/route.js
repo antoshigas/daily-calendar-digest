@@ -18,7 +18,8 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const MAX_ATTACHMENT_SIZE = 4 * 1024 * 1024;
+const MAX_ATTACHMENT_SIZE = 2 * 1024 * 1024;
+const MAX_ATTACHMENTS_PER_EVENT = 4;
 const ALLOWED_ATTACHMENT_TYPES = new Set([
   "application/pdf",
   "application/msword",
@@ -153,6 +154,23 @@ function buildContentDisposition(name) {
   return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }
 
+function uniqueAttachmentName(name, existingNames) {
+  if (!existingNames.includes(name)) return name;
+
+  const dot = name.lastIndexOf(".");
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  const extension = dot > 0 ? name.slice(dot) : "";
+  let counter = 2;
+  let candidate = `${base} (${counter})${extension}`;
+
+  while (existingNames.includes(candidate)) {
+    counter += 1;
+    candidate = `${base} (${counter})${extension}`;
+  }
+
+  return candidate;
+}
+
 function findAttachmentEvent(events, eventId, attachmentId, account) {
   const event = events.find((item) => item.id === eventId);
   if (!event) return null;
@@ -220,12 +238,12 @@ export async function POST(request) {
     }
 
     if (file.size > MAX_ATTACHMENT_SIZE) {
-      return jsonError("Файл слишком большой. Сейчас лимит 4 МБ.");
+      return jsonError("Файл слишком большой. Лимит 2 МБ.");
     }
 
     const fileType = file.type || "application/octet-stream";
     if (!ALLOWED_ATTACHMENT_TYPES.has(fileType)) {
-      return jsonError("Этот тип файла пока не разрешён");
+      return jsonError("Такой тип файла не подходит. Можно PDF, Word, Excel, txt и картинки.");
     }
 
     const events = await readEvents();
@@ -238,6 +256,10 @@ export async function POST(request) {
     assertEventVisible(target, account);
     assertWritableDate(target.date, await getWriteContext());
 
+    if ((target.attachments || []).length >= MAX_ATTACHMENTS_PER_EVENT) {
+      return jsonError("К одному делу можно прикрепить не больше 4 файлов");
+    }
+
     const bytes = Buffer.from(await file.arrayBuffer());
     const encrypted = encryptBuffer(bytes);
     const attachmentId = randomUUID();
@@ -248,7 +270,10 @@ export async function POST(request) {
     const now = new Date().toISOString();
     const attachment = {
       id: attachmentId,
-      name: String(file.name || "Файл").trim().slice(0, 160) || "Файл",
+      name: uniqueAttachmentName(
+        String(file.name || "Файл").trim().slice(0, 160) || "Файл",
+        (target.attachments || []).map((item) => item.name),
+      ),
       type: fileType,
       size: file.size,
       blobUrl: blob.url,
