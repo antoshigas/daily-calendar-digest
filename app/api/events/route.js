@@ -10,7 +10,10 @@ import {
   isTodayAfterDigestTime,
   isValidOwnerId,
   isWritableDateKey,
+  formatRepeatLabel,
   normalizeOwnerId,
+  normalizeRepeat,
+  occursOnDate,
   sortEvents,
 } from "../../../lib/calendar.js";
 import {
@@ -25,7 +28,7 @@ export const dynamic = "force-dynamic";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^$|^([01]\d|2[0-3]):[0-5]\d$/;
-const TRACKED_FIELDS = ["date", "time", "ownerId", "title", "note", "private"];
+const TRACKED_FIELDS = ["date", "time", "ownerId", "title", "note", "private", "repeat"];
 
 function jsonError(message, status = 400) {
   return Response.json({ ok: false, error: message }, { status });
@@ -42,9 +45,14 @@ function cleanEvent(input, id, account, previousEvent = null) {
   const title = typeof input.title === "string" ? input.title.trim() : "";
   const note = typeof input.note === "string" ? input.note.trim() : "";
   const privateRequested = Boolean(input.private);
+  const repeat = normalizeRepeat(input.repeat);
 
   if (!DATE_PATTERN.test(date)) {
     throw new Error("Неверная дата");
+  }
+
+  if (repeat && repeat.until && repeat.until < date) {
+    throw new Error("Дата окончания повтора раньше его начала");
   }
 
   if (!TIME_PATTERN.test(time)) {
@@ -71,6 +79,8 @@ function cleanEvent(input, id, account, previousEvent = null) {
     title: title.slice(0, 120),
     note: note.slice(0, 300),
     private: ownerId === "kristina" && account.id === "kristina" && privateRequested,
+    repeat,
+    skipDates: repeat ? previousEvent?.skipDates || [] : [],
     createdBy: previousEvent?.createdBy || account.id,
     createdAt: previousEvent?.createdAt || new Date().toISOString(),
     updatedBy: account.id,
@@ -134,6 +144,7 @@ function fieldLabel(field) {
     title: "дело",
     note: "заметка",
     private: "частность",
+    repeat: "повтор",
   }[field];
 }
 
@@ -141,12 +152,20 @@ function displayFieldValue(field, value) {
   if (field === "ownerId") return getPersonName(value);
   if (field === "private") return value ? "частное" : "обычное";
   if (field === "time") return value || "без времени";
+  if (field === "repeat") return value ? formatRepeatLabel(value) : "без повтора";
   return value || "пусто";
+}
+
+function comparableFieldValue(field, value) {
+  if (field === "repeat") return JSON.stringify(value || null);
+  return value || "";
 }
 
 function buildChanges(previousEvent, nextEvent) {
   return Object.fromEntries(
-    TRACKED_FIELDS.filter((field) => (previousEvent[field] || "") !== (nextEvent[field] || "")).map((field) => [
+    TRACKED_FIELDS.filter(
+      (field) => comparableFieldValue(field, previousEvent[field]) !== comparableFieldValue(field, nextEvent[field]),
+    ).map((field) => [
       field,
       {
         label: fieldLabel(field),
@@ -261,8 +280,12 @@ export async function PUT(request) {
 
     const context = await getWriteContext();
     const nextEvent = cleanEvent(input, id, account, events[index]);
-    assertWritableDate(events[index].date, context);
-    assertWritableDate(nextEvent.date, context);
+    if (!events[index].repeat) {
+      assertWritableDate(events[index].date, context);
+    }
+    if (!nextEvent.repeat || nextEvent.date !== events[index].date) {
+      assertWritableDate(nextEvent.date, context);
+    }
 
     const changes = buildChanges(events[index], nextEvent);
     const eventToStore =
@@ -290,6 +313,7 @@ export async function DELETE(request) {
     const account = await requireSessionAccount(request);
     const url = new URL(request.url);
     const id = url.searchParams.get("id");
+    const occurrence = url.searchParams.get("occurrence") || "";
 
     if (!id) {
       return jsonError("Не найден id");
@@ -305,7 +329,42 @@ export async function DELETE(request) {
     assertEventVisible(target, account);
 
     const context = await getWriteContext();
-    assertWritableDate(target.date, context);
+
+    if (occurrence && target.repeat) {
+      if (!DATE_PATTERN.test(occurrence) || !occursOnDate(target, occurrence)) {
+        return jsonError("Повтор на этот день не найден", 404);
+      }
+
+      assertWritableDate(occurrence, context);
+
+      const skippedEvent = appendHistory(
+        {
+          ...target,
+          skipDates: [...(target.skipDates || []), occurrence],
+          updatedBy: account.id,
+          updatedAt: new Date().toISOString(),
+        },
+        createHistoryEntry("updated", account, `Убрал(а) повтор ${account.name}`, {
+          repeat: {
+            label: "повтор",
+            before: displayFieldValue("date", occurrence),
+            after: "убран этот день",
+          },
+        }),
+      );
+      const storedEvents = await writeEvents(events.map((event) => (event.id === id ? skippedEvent : event)));
+      const deletedEvents = await readDeletedEvents();
+
+      return Response.json({
+        ok: true,
+        events: serializeEvents(storedEvents, account),
+        deletedEvents: serializeDeletedEvents(deletedEvents, account),
+      });
+    }
+
+    if (!target.repeat) {
+      assertWritableDate(target.date, context);
+    }
 
     const deletedAt = new Date().toISOString();
     const deletedRecord = appendHistory(

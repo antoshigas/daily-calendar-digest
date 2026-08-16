@@ -1,6 +1,7 @@
 import {
   buildPersonalTelegramMessage,
   buildTelegramMessage,
+  expandEventsForDate,
   getBerlinDateKey,
 } from "../../../../lib/calendar.js";
 import { hasDigestRun, markDigestRun, readEvents } from "../../../../lib/storage.js";
@@ -87,7 +88,7 @@ export async function GET(request) {
     const now = new Date();
     const today = getBerlinDateKey(now);
     const events = await readEvents();
-    const todaysEvents = events.filter((event) => event.date === today);
+    const todaysEvents = expandEventsForDate(events, today);
     const alreadyRun = await hasDigestRun(today);
     const message = buildTelegramMessage(todaysEvents, now);
 

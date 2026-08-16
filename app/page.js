@@ -17,6 +17,7 @@ import {
   PanelRightOpen,
   Pencil,
   Plus,
+  Repeat,
   ShieldCheck,
   Trash2,
   UserRound,
@@ -32,12 +33,14 @@ import {
   buildMonthCells,
   formatDisplayDate,
   formatMonthLabel,
+  formatRepeatLabel,
   getDateLockReason,
   getPersonName,
   getTodayKey,
   isSameMonth,
   isWritableDateKey,
   keyToDate,
+  occursOnDate,
 } from "../lib/calendar.js";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
@@ -60,6 +63,20 @@ const WHEEL_MONTH_THRESHOLD = 80;
 const WHEEL_MONTH_COOLDOWN_MS = 650;
 const FOCUS_SCROLL_DELAY_MS = 120;
 const GRAPHIC_DOTS = Array.from({ length: 9 }, (_, index) => index);
+const REPEAT_PRESETS = [
+  { id: "none", label: "Нет" },
+  { id: "day", label: "Каждый день" },
+  { id: "week", label: "Каждую неделю" },
+  { id: "month", label: "Каждый месяц" },
+  { id: "year", label: "Каждый год" },
+  { id: "custom", label: "Каждые N…" },
+];
+const REPEAT_UNIT_OPTIONS = [
+  { value: "day", label: "дней" },
+  { value: "week", label: "недель" },
+  { value: "month", label: "месяцев" },
+  { value: "year", label: "лет" },
+];
 
 function emptyForm(date, ownerId = DEFAULT_OWNER_ID) {
   return {
@@ -67,6 +84,7 @@ function emptyForm(date, ownerId = DEFAULT_OWNER_ID) {
     time: "",
     ownerId,
     private: false,
+    repeat: null,
     title: "",
     note: "",
   };
@@ -88,6 +106,8 @@ function eventsSignature(events) {
       event.time || "",
       event.ownerId || "",
       event.private ? "private" : "public",
+      event.repeat ? JSON.stringify(event.repeat) : "",
+      (event.skipDates || []).join(","),
       event.title,
       event.note || "",
       ...(event.attachments || []).map((attachment) => [
@@ -843,12 +863,36 @@ export default function CalendarPage() {
   const monthCells = useMemo(() => buildMonthCells(viewDate), [viewDate]);
   const nextMonthCells = useMemo(() => buildMonthCells(nextViewDate), [nextViewDate]);
   const eventsByDate = useMemo(() => {
-    return events.reduce((groups, event) => {
-      groups[event.date] ||= [];
-      groups[event.date].push(event);
-      return groups;
-    }, {});
-  }, [events]);
+    const dateKeys = new Set([selectedDate]);
+    for (const cell of previousMonthCells) dateKeys.add(cell.key);
+    for (const cell of monthCells) dateKeys.add(cell.key);
+    for (const cell of nextMonthCells) dateKeys.add(cell.key);
+
+    const groups = {};
+    for (const event of events) {
+      if (!event.repeat) {
+        groups[event.date] ||= [];
+        groups[event.date].push(event);
+        continue;
+      }
+
+      for (const dateKey of dateKeys) {
+        if (occursOnDate(event, dateKey)) {
+          groups[dateKey] ||= [];
+          groups[dateKey].push(event.date === dateKey ? event : { ...event, date: dateKey });
+        }
+      }
+    }
+
+    for (const dateKey of Object.keys(groups)) {
+      groups[dateKey].sort(
+        (left, right) =>
+          (left.time || "99:99").localeCompare(right.time || "99:99") || left.title.localeCompare(right.title, "ru"),
+      );
+    }
+
+    return groups;
+  }, [events, selectedDate, previousMonthCells, monthCells, nextMonthCells]);
   const selectedEvents = eventsByDate[selectedDate] || [];
   const deletedByDate = useMemo(() => groupDeletedByDate(deletedEvents), [deletedEvents]);
   const selectedLoginAccount = useMemo(
@@ -935,24 +979,29 @@ export default function CalendarPage() {
   }
 
   function startEdit(event) {
-    if (!isWritableDateKey(event.date, dateContext)) {
-      setFeedback(getDateLockReason(event.date, dateContext));
+    const baseEvent = events.find((item) => item.id === event.id) || event;
+
+    if (!baseEvent.repeat && !isWritableDateKey(baseEvent.date, dateContext)) {
+      setFeedback(getDateLockReason(baseEvent.date, dateContext));
       return;
     }
 
-    setEditingId(event.id);
+    setEditingId(baseEvent.id);
     setDeletingId(null);
     setPendingFiles([]);
     setDeletedAttachmentIds([]);
-    selectDate(event.date, { toggleSame: false });
+    if (!baseEvent.repeat) {
+      selectDate(baseEvent.date, { toggleSame: false });
+    }
     setFormOpen(true);
     setForm({
-      date: event.date,
-      time: event.time || "",
-      ownerId: event.ownerId || DEFAULT_OWNER_ID,
-      private: Boolean(event.private),
-      title: event.title,
-      note: event.note || "",
+      date: baseEvent.date,
+      time: baseEvent.time || "",
+      ownerId: baseEvent.ownerId || DEFAULT_OWNER_ID,
+      private: Boolean(baseEvent.private),
+      repeat: baseEvent.repeat || null,
+      title: baseEvent.title,
+      note: baseEvent.note || "",
     });
   }
 
@@ -962,6 +1011,19 @@ export default function CalendarPage() {
     setPendingFiles([]);
     setDeletedAttachmentIds([]);
     setForm((current) => emptyForm(date, current.ownerId));
+  }
+
+  function applyRepeatPreset(presetId) {
+    setForm((current) => {
+      if (presetId === "none") return { ...current, repeat: null };
+
+      const until = current.repeat?.until || "";
+      if (presetId === "custom") {
+        return { ...current, repeat: { unit: current.repeat?.unit || "week", interval: 2, until } };
+      }
+
+      return { ...current, repeat: { unit: presetId, interval: 1, until } };
+    });
   }
 
   function openCreateForm() {
@@ -1111,9 +1173,10 @@ export default function CalendarPage() {
     event.preventDefault();
 
     const existingEvent = editingId ? events.find((item) => item.id === editingId) : null;
+    const skipNewDateCheck = Boolean(form.repeat) && existingEvent && form.date === existingEvent.date;
     if (
-      !isWritableDateKey(form.date, dateContext) ||
-      (existingEvent && !isWritableDateKey(existingEvent.date, dateContext))
+      (!skipNewDateCheck && !isWritableDateKey(form.date, dateContext)) ||
+      (existingEvent && !existingEvent.repeat && !isWritableDateKey(existingEvent.date, dateContext))
     ) {
       setFeedback(getDateLockReason(existingEvent?.date || form.date, dateContext));
       return;
@@ -1156,8 +1219,9 @@ export default function CalendarPage() {
 
       setPendingFiles([]);
       setDeletedAttachmentIds([]);
-      resetForm(form.date);
-      selectDate(form.date, { toggleSame: false });
+      const focusDate = form.repeat && editingId ? selectedDate : form.date;
+      resetForm(focusDate);
+      selectDate(focusDate, { toggleSame: false });
       setFormOpen(false);
       setFeedback("Сохранено");
     } catch (error) {
@@ -1167,12 +1231,16 @@ export default function CalendarPage() {
     }
   }
 
-  async function deleteEvent(event, id) {
+  async function deleteEvent(event, id, occurrence = "") {
     event.preventDefault();
 
     const target = events.find((item) => item.id === id);
-    if (target && !isWritableDateKey(target.date, dateContext)) {
+    if (target && !target.repeat && !isWritableDateKey(target.date, dateContext)) {
       setFeedback(getDateLockReason(target.date, dateContext));
+      return;
+    }
+    if (occurrence && !isWritableDateKey(occurrence, dateContext)) {
+      setFeedback(getDateLockReason(occurrence, dateContext));
       return;
     }
 
@@ -1180,7 +1248,8 @@ export default function CalendarPage() {
     setFeedback("Удаляю");
 
     try {
-      const response = await fetch(`/api/events?id=${encodeURIComponent(id)}`, {
+      const occurrenceQuery = occurrence ? `&occurrence=${encodeURIComponent(occurrence)}` : "";
+      const response = await fetch(`/api/events?id=${encodeURIComponent(id)}${occurrenceQuery}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
       });
@@ -1486,6 +1555,7 @@ export default function CalendarPage() {
                 {dayEvents.slice(0, 2).map((item) => (
                   <span className="event-chip" key={item.id}>
                     <span>{item.time || NO_TIME_LABEL}</span>
+                    {item.repeat ? "↻ " : ""}
                     {getPersonName(item.ownerId)} · {item.title}
                   </span>
                 ))}
@@ -1711,6 +1781,12 @@ export default function CalendarPage() {
                             {getPersonName(event.ownerId)}
                           </span>
                           {event.private ? <span className="private-pill">частное</span> : null}
+                          {event.repeat ? (
+                            <span className="repeat-pill">
+                              <Repeat size={12} />
+                              {formatRepeatLabel(event.repeat)}
+                            </span>
+                          ) : null}
                           <h3>{event.title}</h3>
                           {event.note ? <p>{event.note}</p> : null}
                           {renderAttachments(event)}
@@ -1856,6 +1932,12 @@ export default function CalendarPage() {
                         {getPersonName(event.ownerId)}
                       </span>
                       {event.private ? <span className="private-pill">частное</span> : null}
+                      {event.repeat ? (
+                        <span className="repeat-pill">
+                          <Repeat size={12} />
+                          {formatRepeatLabel(event.repeat)}
+                        </span>
+                      ) : null}
                       <h3>{event.title}</h3>
                       {event.note ? <p>{event.note}</p> : null}
                       {renderAttachments(event)}
@@ -1877,12 +1959,29 @@ export default function CalendarPage() {
                       ) : null}
 
                       {deletingId === event.id ? (
-                        <form className="delete-form" onSubmit={(formEvent) => deleteEvent(formEvent, event.id)}>
-                          <p>Удалить это дело? Оно уйдёт в список удалённых вместе с историей.</p>
+                        <form
+                          className="delete-form"
+                          onSubmit={(formEvent) => deleteEvent(formEvent, event.id, event.repeat ? event.date : "")}
+                        >
+                          <p>
+                            {event.repeat
+                              ? "Это повторяющееся дело. Убрать только этот день или удалить все повторы?"
+                              : "Удалить это дело? Оно уйдёт в список удалённых вместе с историей."}
+                          </p>
                           <div className="delete-actions">
                             <button className="delete-confirm-button" type="submit" disabled={busy}>
-                              Удалить
+                              {event.repeat ? "Только этот день" : "Удалить"}
                             </button>
+                            {event.repeat ? (
+                              <button
+                                className="delete-confirm-button"
+                                type="button"
+                                disabled={busy}
+                                onClick={(clickEvent) => deleteEvent(clickEvent, event.id)}
+                              >
+                                Все повторы
+                              </button>
+                            ) : null}
                             <button
                               className="delete-cancel-button"
                               type="button"
@@ -1996,6 +2095,79 @@ export default function CalendarPage() {
                     value={form.time}
                     onChange={(time) => setForm((current) => ({ ...current, time }))}
                   />
+                </div>
+
+                <div className="form-field">
+                  <span>Повтор</span>
+                  <div className="repeat-picker" role="radiogroup" aria-label="Повтор">
+                    {REPEAT_PRESETS.map((preset) => {
+                      const activePreset = !form.repeat
+                        ? "none"
+                        : form.repeat.interval === 1
+                          ? form.repeat.unit
+                          : "custom";
+
+                      return (
+                        <button
+                          className={`repeat-option${activePreset === preset.id ? " selected" : ""}`}
+                          key={preset.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={activePreset === preset.id}
+                          onClick={() => applyRepeatPreset(preset.id)}
+                        >
+                          {preset.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {form.repeat && form.repeat.interval > 1 ? (
+                    <div className="repeat-custom">
+                      <span>Каждые</span>
+                      <input
+                        type="number"
+                        min="2"
+                        max="99"
+                        inputMode="numeric"
+                        value={form.repeat.interval}
+                        onChange={(event) => {
+                          const interval = Math.min(99, Math.max(2, Math.round(Number(event.target.value) || 2)));
+                          setForm((current) => ({ ...current, repeat: { ...current.repeat, interval } }));
+                        }}
+                      />
+                      <select
+                        value={form.repeat.unit}
+                        onChange={(event) =>
+                          setForm((current) => ({ ...current, repeat: { ...current.repeat, unit: event.target.value } }))
+                        }
+                      >
+                        {REPEAT_UNIT_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+
+                  {form.repeat ? (
+                    <label className="repeat-until">
+                      Повторять до (можно не указывать)
+                      <input
+                        type="date"
+                        min={form.date}
+                        value={form.repeat.until || ""}
+                        onChange={(event) =>
+                          setForm((current) => ({ ...current, repeat: { ...current.repeat, until: event.target.value } }))
+                        }
+                      />
+                    </label>
+                  ) : null}
+
+                  {form.repeat && editingId ? (
+                    <p className="repeat-hint">Изменения применятся ко всем повторам этого дела.</p>
+                  ) : null}
                 </div>
 
                 <label>
