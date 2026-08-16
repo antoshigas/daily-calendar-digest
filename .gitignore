@@ -8,3 +8,4 @@ data/*.local.json
 .next/
 
 .env*
+.vercel
